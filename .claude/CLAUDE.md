@@ -2,8 +2,8 @@
 
 ## Language Settings
 
-Documentation is written in English, but the developer is a Japanese speaker.
-Always use Japanese for responses and code comments.
+The developer is a Japanese speaker.
+Always respond and write code comments in Japanese, even when specifications, documents, or instructions are written in English.
 
 ## Response Behavior
 
