@@ -11,6 +11,8 @@ const ROTATE_GRACE_MS = 5 * 1000;
 // エラー時の再接続待ち時間(指数的に延ばす)
 const RETRY_BASE_MS = 1000;
 const RETRY_MAX_MS = 30 * 1000;
+// 張り替え時刻にこの時間以上音声が届いていなければ、張り替えずに接続を閉じる(次の音声で開き直す)
+const AUDIO_IDLE_MS = 10 * 1000;
 // 接続待ちの間に保持する音声の上限(約 10 秒)
 const PENDING_MAX_BYTES = SAMPLE_RATE * 2 * 10;
 
@@ -50,12 +52,14 @@ export class SttSession {
     this.retryDelay = RETRY_BASE_MS;
     this.pending = [];
     this.pendingBytes = 0;
+    this.lastAudioAt = 0;
     this.closed = false;
   }
 
   /** 16bit PCM(24kHz・モノラル)の音声チャンクを受け付ける */
   write(chunk) {
     if (this.closed) return;
+    this.lastAudioAt = Date.now();
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.#append(this.socket, chunk);
       return;
@@ -183,6 +187,12 @@ export class SttSession {
   // 張り替え時刻に達したら、発話中でなければすぐに、発話中なら発話の終わりで張り替える
   #requestRotate() {
     if (this.closed) return;
+    if (Date.now() - this.lastAudioAt > AUDIO_IDLE_MS) {
+      // 音声が途絶えているので新しいセッションは開かない。次の音声の到着時に write() が開き直す
+      this.log('[stt] 音声が届いていないため、張り替えずに接続を閉じます');
+      this.#detachCurrent()?.close();
+      return;
+    }
     if (this.speaking) {
       this.rotateDue = true;
       return;

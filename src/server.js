@@ -45,7 +45,28 @@ const server = createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
+// 切断を通知せずに消えたクライアントを検出する間隔。1 周期の間に pong が返らなければ切断する
+const HEARTBEAT_INTERVAL_MS = 15 * 1000;
+
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) {
+      // terminate() でも 'close' が発火し、文字起こしセッションの後片付けが行われる
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_INTERVAL_MS);
+wss.on('close', () => clearInterval(heartbeat));
+
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
   const id = randomUUID().slice(0, 8);
   const log = (message) => console.log(`[${id}] ${message}`);
   const writer = createTranscriptWriter(id);
@@ -60,6 +81,11 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (data, isBinary) => {
     if (isBinary) stt.write(data);
+  });
+  // 不正なフレーム等のエラー。リスナーがないとプロセスごと落ちるため必ず受ける。
+  // エラー後は 'close' が発火するので、後片付けはそちらに任せる
+  ws.on('error', (err) => {
+    log(`ws error: ${err.message}`);
   });
   ws.on('close', () => {
     stt.close();
