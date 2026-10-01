@@ -5,6 +5,9 @@ services:
     working_dir: /app
     volumes:
       - .:/app
+    env_file:
+      - path: .env
+        required: false
     environment:
       PORT: 3000
       npm_config_cache: /tmp/.npm
