@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["rebut", "no_rebuttal"],
+      "description": "反論が必要なら rebut、不要なら no_rebuttal"
+    },
+    "reason": {
+      "type": "string",
+      "description": "判定の理由(ログ用。読み上げには使わない)"
+    },
+    "rebuttal": {
+      "type": "string",
+      "description": "読み上げる反論文。反論不要の場合は空文字"
+    },
+    "sources": {
+      "type": "array",
+      "description": "反論の根拠にした情報源。反論不要の場合は空配列",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" }
+        },
+        "required": ["title", "url"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["decision", "reason", "rebuttal", "sources"],
+  "additionalProperties": false
+}
