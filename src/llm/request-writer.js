@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const REQUESTS_DIR = join(import.meta.dirname, '..', 'storage', 'llm-requests');
+const REQUESTS_DIR = join(import.meta.dirname, '..', '..', 'storage', 'llm-requests');
 
 /**
  * 組み立てた LLM リクエストを 1 リクエスト 1 ファイルの JSON で書き出す(動作確認用)。

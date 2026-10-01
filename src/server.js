@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { handleConnection } from './connection.js';
-import { startHeartbeat } from './heartbeat.js';
-import { serveStatic } from './static.js';
+import { startHeartbeat } from './web/heartbeat.js';
+import { serveStatic } from './web/static.js';
 
 const port = Number(process.env.PORT ?? 3000);
 

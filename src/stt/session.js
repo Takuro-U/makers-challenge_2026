@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import { requireEnv } from './env.js';
+import { requireEnv } from '../lib/env.js';
 
 const REALTIME_URL = 'wss://api.openai.com/v1/realtime?intent=transcription';
 // 入力音声の形式(16bit PCM・モノラル・24kHz)

@@ -1,5 +1,5 @@
 // Float32 の入力を 24kHz の 16bit PCM(リトルエンディアン)に変換し、約 100ms ごとにメインスレッドへ渡す
-// 24kHz は OpenAI Realtime API の入力形式(src/stt.js の SAMPLE_RATE)に合わせている
+// 24kHz は OpenAI Realtime API の入力形式(src/stt/session.js の SAMPLE_RATE)に合わせている
 
 const TARGET_RATE = 24000;
 const CHUNK_SAMPLES = TARGET_RATE / 10;

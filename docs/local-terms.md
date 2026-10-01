@@ -1,4 +1,4 @@
-# フィルタ辞書(config/local-terms.json)
+# フィルタ辞書(src/llm/local-terms.json)
 
 一次フィルタ(仕様書 §7)が照合する地元関連語彙の辞書。起動時に 1 回だけ読み込むため、変更後はサーバの再起動が必要。
 
@@ -20,7 +20,7 @@
 
 ## 正規化
 
-照合の前に、発言と見出し語の両方に次の正規化をかける(`src/local-filter.js` の `normalize`)。
+照合の前に、発言と見出し語の両方に次の正規化をかける(`src/llm/local-filter.js` の `normalize`)。
 
 - 全角半角の統一(NFKC)
 - カタカナ → ひらがな

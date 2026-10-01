@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { requirePositiveInt } from './env.js';
-import { HistoryBuffer } from './history-buffer.js';
-import { buildRebuttalRequest } from './llm-request.js';
-import { matchLocalTerms } from './local-filter.js';
-import { writeLlmRequest } from './request-writer.js';
-import { SttSession } from './stt.js';
-import { createTranscriptWriter } from './transcript-writer.js';
+import { requirePositiveInt } from './lib/env.js';
+import { HistoryBuffer } from './conversation/history-buffer.js';
+import { buildRebuttalRequest } from './llm/request.js';
+import { matchLocalTerms } from './llm/local-filter.js';
+import { writeLlmRequest } from './llm/request-writer.js';
+import { SttSession } from './stt/session.js';
+import { createTranscriptWriter } from './stt/transcript-writer.js';
 
 const historyBufferSize = requirePositiveInt('HISTORY_BUFFER_SIZE');
 

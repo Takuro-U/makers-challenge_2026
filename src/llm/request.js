@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { failStartup, requireEnv, requireOneOf, requirePositiveInt } from './env.js';
+import { failStartup, requireEnv, requireOneOf, requirePositiveInt } from '../lib/env.js';
 
-const CONFIG_DIR = join(import.meta.dirname, '..', 'config');
+const CONFIG_DIR = import.meta.dirname;
 
 const model = requireEnv('LLM_MODEL');
 const maxTokens = requirePositiveInt('LLM_MAX_TOKENS');
@@ -37,7 +37,7 @@ function renderConversation(entries, trigger) {
 /**
  * 連鎖の起点となる反論リクエスト(Messages API のリクエスト本文)を組み立てる。
  * トリガ発言 + 会話履歴バッファの直近履歴を含める。
- * @param {import('./history-buffer.js').HistoryBuffer} history トリガ発言を追記済みのバッファ
+ * @param {import('../conversation/history-buffer.js').HistoryBuffer} history トリガ発言を追記済みのバッファ
  * @param {{ timestamp: Date, text: string }} trigger history.push() が返したトリガ発言
  */
 export function buildRebuttalRequest(history, trigger) {

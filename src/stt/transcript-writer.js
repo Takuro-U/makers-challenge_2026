@@ -1,7 +1,7 @@
 import { createWriteStream, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const TRANSCRIPTS_DIR = join(import.meta.dirname, '..', 'storage', 'transcripts');
+const TRANSCRIPTS_DIR = join(import.meta.dirname, '..', '..', 'storage', 'transcripts');
 
 /**
  * 確定結果を 1 件 1 行のテキストで書き出す(動作確認用)。

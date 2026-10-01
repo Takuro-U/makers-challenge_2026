@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { failStartup } from './env.js';
+import { failStartup } from '../lib/env.js';
 
-const TERMS_PATH = join(import.meta.dirname, '..', 'config', 'local-terms.json');
+const TERMS_PATH = join(import.meta.dirname, 'local-terms.json');
 
 /**
  * 表記揺れを吸収するための正規化。
