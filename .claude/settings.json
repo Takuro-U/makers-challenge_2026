@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Search",
+      "Grep",
+      "Glob",
+      "Monitor",
+      "Skill",
+      "WebSearch",
+      "WebFetch",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Bash(git reset:*)",
+      "Bash(git rebase:*)",
+
+      "Read(.env)",
+      "Edit(.env)"
+    ]
+  }
+}
