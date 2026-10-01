@@ -14,7 +14,17 @@ const RETRY_MAX_MS = 30 * 1000;
 // 接続待ちの間に保持する音声の上限(約 10 秒)
 const PENDING_MAX_BYTES = SAMPLE_RATE * 2 * 10;
 
-const model = process.env.STT_MODEL ?? 'gpt-4o-transcribe';
+// 必須の環境変数を読む。未設定(空文字を含む)なら起動を中止する
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`環境変数 ${name} が未設定です`);
+    process.exit(1);
+  }
+  return value;
+}
+
+const model = requireEnv('STT_MODEL');
 const language = process.env.STT_LANGUAGE ?? 'ja';
 
 /**
