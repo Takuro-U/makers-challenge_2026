@@ -1,6 +1,9 @@
+// 対象: src/llm/response.js
+// LLM の応答から取り出した JSON 文字列を、反論の判定結果として読む処理を確かめる
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseRebuttalResult } from './response.js';
+import { parseRebuttalResult } from '../llm/response.js';
 
 const rebut = {
   decision: 'rebut',

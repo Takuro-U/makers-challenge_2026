@@ -34,7 +34,7 @@ function renderConversation(entries, triggers) {
 /**
  * 連鎖の起点となる反論リクエスト(選択中のプロバイダのリクエスト本文)を組み立てる。
  * 呼び出した時点の会話履歴バッファの直近履歴を含めるため、トリガのあとに届いた発言も入る。
- * @param {import('../conversation/history-buffer.js').HistoryBuffer} history トリガ発言を追記済みのバッファ
+ * @param {import('../history-buffer.js').HistoryBuffer} history トリガ発言を追記済みのバッファ
  * @param {Array<{ timestamp: Date, text: string }>} triggers history.push() が返したトリガ発言
  */
 export function buildRebuttalRequest(history, triggers) {

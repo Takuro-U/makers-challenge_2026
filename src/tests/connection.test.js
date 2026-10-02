@@ -1,7 +1,11 @@
+// 対象: src/connection.js
+// WebSocket の接続処理が、モードの通知・担当の割り当て・音声の受け付けを正しく行うことを確かめる
+// (代役のソケットを使い、通信なし)
+
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { beforeEach, test } from 'node:test';
-import { createConnectionHandler } from './connection.js';
+import { createConnectionHandler } from '../connection.js';
 
 // ws の WebSocket のうち、接続の処理が使う部分だけを持つ代役
 class FakeSocket extends EventEmitter {

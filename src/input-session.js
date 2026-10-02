@@ -1,5 +1,5 @@
+import { HistoryBuffer } from './history-buffer.js';
 import { failStartup, requirePositiveInt } from './lib/env.js';
-import { HistoryBuffer } from './conversation/history-buffer.js';
 import { matchLocalTerms } from './llm/local-filter.js';
 import { provider } from './llm/provider.js';
 import { buildRebuttalRequest } from './llm/request.js';

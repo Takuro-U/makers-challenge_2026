@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ModeController } from './mode/mode-controller.js';
+import { ModeController } from './mode-controller.js';
 
 /**
  * ブラウザとの WebSocket 接続を処理する関数を作る。

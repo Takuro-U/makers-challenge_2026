@@ -1,6 +1,9 @@
+// 対象: src/mode-controller.js
+// 待機・入力・出力のモード遷移と、マイク担当の割り当て・解放を確かめる(模擬タイマーを使用)
+
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
-import { ModeController } from './mode-controller.js';
+import { ModeController } from '../mode-controller.js';
 
 const OUTPUT_TIMEOUT_MS = 60000;
 

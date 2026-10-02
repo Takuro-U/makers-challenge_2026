@@ -1,6 +1,9 @@
+// 対象: src/llm/request-debouncer.js
+// トリガから LLM リクエスト発行までの保留(猶予・上限・複数トリガの統合)を確かめる(模擬タイマーを使用)
+
 import assert from 'node:assert/strict';
 import { beforeEach, mock, test } from 'node:test';
-import { RequestDebouncer } from './request-debouncer.js';
+import { RequestDebouncer } from '../llm/request-debouncer.js';
 
 const IDLE_MS = 2000;
 const MAX_WAIT_MS = 8000;

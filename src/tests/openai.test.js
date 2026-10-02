@@ -1,3 +1,6 @@
+// 対象: src/llm/providers/openai.js
+// OpenAI 用のリクエストの組み立てと、応答からの結果の取り出しを確かめる(外部通信なし)
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -10,7 +13,7 @@ Object.assign(process.env, {
   LLM_MAX_TOKENS: '16000',
   LLM_WEB_SEARCH_MAX_USES: '3',
 });
-const { buildRequest, extractText } = await import('./openai.js');
+const { buildRequest, extractText } = await import('../llm/providers/openai.js');
 
 const schema = { type: 'object' };
 

@@ -1,6 +1,9 @@
+// 対象: src/llm/request.js
+// 会話履歴とトリガ発言から、LLM リクエストの会話部分を組み立てる処理を確かめる(外部通信なし)
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { HistoryBuffer } from '../conversation/history-buffer.js';
+import { HistoryBuffer } from '../history-buffer.js';
 
 // 読み込み時に環境変数を検証するため、読み込む前に設定する(通信は行わない)
 Object.assign(process.env, {
@@ -13,7 +16,7 @@ Object.assign(process.env, {
   LLM_HISTORY_CONTEXT_SIZE: '4',
   HISTORY_BUFFER_SIZE: '10',
 });
-const { buildRebuttalRequest } = await import('./request.js');
+const { buildRebuttalRequest } = await import('../llm/request.js');
 
 // 1 秒おきの時刻で発言を積む
 function pushAll(history, texts) {

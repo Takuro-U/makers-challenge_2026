@@ -1,3 +1,6 @@
+// 対象: src/web/static.js
+// ページと、ブラウザ向けの設定値(/config.json)の配信を確かめる(代役のレスポンスを使い、通信なし)
+
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
@@ -6,7 +9,7 @@ Object.assign(process.env, {
   CLIENT_RECONNECT_DELAY_MS: '2500',
   CLIENT_AUDIO_CHUNK_MS: '120',
 });
-const { serveStatic } = await import('./static.js');
+const { serveStatic } = await import('../web/static.js');
 
 // http.ServerResponse のうち、配信の処理が使う部分だけを持つ代役
 function fakeResponse() {
