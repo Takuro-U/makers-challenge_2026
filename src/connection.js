@@ -1,18 +1,28 @@
 import { randomUUID } from 'node:crypto';
-import { requirePositiveInt } from './lib/env.js';
+import { failStartup, requirePositiveInt } from './lib/env.js';
 import { HistoryBuffer } from './conversation/history-buffer.js';
-import { buildRebuttalRequest } from './llm/request.js';
 import { matchLocalTerms } from './llm/local-filter.js';
+import { provider } from './llm/provider.js';
+import { buildRebuttalRequest } from './llm/request.js';
+import { RequestDebouncer } from './llm/request-debouncer.js';
 import { writeLlmRequest } from './llm/request-writer.js';
+import { parseRebuttalResult } from './llm/response.js';
+import { writeLlmResponse } from './llm/response-writer.js';
 import { SttSession } from './stt/session.js';
 import { createTranscriptWriter } from './stt/transcript-writer.js';
 
 const historyBufferSize = requirePositiveInt('HISTORY_BUFFER_SIZE');
+const requestIdleMs = requirePositiveInt('LLM_REQUEST_IDLE_MS');
+const requestMaxWaitMs = requirePositiveInt('LLM_REQUEST_MAX_WAIT_MS');
+if (requestMaxWaitMs <= requestIdleMs) {
+  failStartup('LLM_REQUEST_MAX_WAIT_MS は LLM_REQUEST_IDLE_MS より大きい値で指定してください');
+}
 
 /**
  * ブラウザとの WebSocket 接続 1 本を処理する。
  * 受信した音声を文字起こしセッションへ中継し、確定結果ごとに
- * 履歴バッファへの追記・一次フィルタ・LLM リクエストの組み立てを行う。
+ * 履歴バッファへの追記と一次フィルタを行う。
+ * フィルタに該当したら、後続の発言を待ってから LLM リクエストを発行する。
  */
 export function handleConnection(ws) {
   const id = randomUUID().slice(0, 8);
@@ -20,24 +30,65 @@ export function handleConnection(ws) {
   const writer = createTranscriptWriter(id);
   const history = new HistoryBuffer(historyBufferSize);
 
+  // リクエストを 1 回だけ送り、応答を解釈して書き出す。先行するリクエストの打ち切りは行わない
+  const requestRebuttal = async (triggers, request) => {
+    let response;
+    try {
+      response = await provider.send(request);
+    } catch (err) {
+      log(`llm request の送信に失敗しました: ${err.message}`);
+      return;
+    }
+
+    const record = { triggers, response };
+    try {
+      record.result = parseRebuttalResult(provider.extractText(response));
+      log(record.result.decision === 'rebut'
+        ? `rebuttal: ${record.result.rebuttal}`
+        : `no rebuttal: ${record.result.reason}`);
+    } catch (err) {
+      record.error = err.message;
+      log(`llm response を解釈できません: ${err.message}`);
+    }
+    writeLlmResponse(id, record)
+      .then((path) => log(`llm response -> ${path}`))
+      .catch((err) => log(`llm response の書き出しに失敗しました: ${err.message}`));
+  };
+
+  // 保留が明けた時点の履歴でリクエストを組み立てるため、トリガのあとに届いた発言も含まれる
+  const issueRequest = (pending) => {
+    const triggers = pending.map(({ entry, matchedTerms }) => ({ text: entry.text, matchedTerms }));
+    const request = buildRebuttalRequest(history, pending.map(({ entry }) => entry));
+    writeLlmRequest(id, { triggers, request })
+      .then((path) => log(`llm request -> ${path}`))
+      .catch((err) => log(`llm request の書き出しに失敗しました: ${err.message}`));
+    requestRebuttal(triggers, request);
+  };
+
+  const debouncer = new RequestDebouncer({
+    idleMs: requestIdleMs,
+    maxWaitMs: requestMaxWaitMs,
+    onFire: issueRequest,
+  });
+
   const onFinal = (text) => {
     log(`final: ${text}`);
     writer.write(text);
     // 履歴はトリガの有無にかかわらず常に追記する
     const entry = history.push(text);
 
-    const matched = matchLocalTerms(text);
-    if (matched.length === 0) return;
-    log(`trigger: ${matched.join(', ')}`);
-
-    // 現段階では送信せず、組み立てたリクエストを書き出す
-    const request = buildRebuttalRequest(history, entry);
-    writeLlmRequest(id, { trigger: text, matchedTerms: matched, request })
-      .then((path) => log(`llm request -> ${path}`))
-      .catch((err) => log(`llm request の書き出しに失敗しました: ${err.message}`));
+    const matchedTerms = matchLocalTerms(text);
+    if (matchedTerms.length === 0) return;
+    log(`trigger: ${matchedTerms.join(', ')}`);
+    debouncer.trigger({ entry, matchedTerms });
   };
 
-  const stt = new SttSession({ log, onFinal });
+  const stt = new SttSession({
+    log,
+    onFinal,
+    onSpeechStart: () => debouncer.hold(),
+    onSettled: () => debouncer.release(),
+  });
   log(`connected -> ${writer.path}`);
 
   ws.on('message', (data, isBinary) => {
@@ -50,6 +101,8 @@ export function handleConnection(ws) {
   });
   // 通常の切断、エラー、ハートビートによる terminate() のいずれでも発火する
   ws.on('close', () => {
+    // 保留中のリクエストは発行せずに破棄する
+    debouncer.cancel();
     stt.close();
     writer.close();
     log('disconnected');

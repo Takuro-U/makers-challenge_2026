@@ -5,7 +5,7 @@
 ## セットアップ
 
 ```bash
-cp .env.example .env              # その後 OPENAI_API_KEY と STT_MODEL を設定する
+cp .env.example .env              # その後 API キーと、値が空の項目をすべて設定する(LLM_PROVIDER で選ばなかった側のモデルは空でよい。openai を選んだ場合は ANTHROPIC_API_KEY も空でよい)
 docker compose up -d              # 起動(.env / compose.yaml の変更後はコンテナの再作成も兼ねる)
 ```
 
@@ -49,6 +49,23 @@ docker compose exec backend node --version  # コンテナ内の Node.js のバ�
 ```bash
 ls -lt storage/transcripts/                             # 出力ファイルを新しい順に一覧
 tail -f "$(ls -t storage/transcripts/*.txt | head -1)"  # 最新のファイルを追従表示
+```
+
+## LLM の入出力
+
+一次フィルタに該当した確定結果があると、後続の発言を待ってから(仕様書 §8「発行の保留」)、`LLM_PROVIDER` で選んだプロバイダ(`claude` / `openai`)の API へリクエストを 1 回送る。待つ時間は `LLM_REQUEST_IDLE_MS` と `LLM_REQUEST_MAX_WAIT_MS` で指定する。モデルは `LLM_CLAUDE_MODEL` / `LLM_OPENAI_MODEL` でプロバイダごとに指定し、選んだ側だけが必須になる。`LLM_EFFORT` は共用なので、両プロバイダが受け付ける値(`low` / `medium` / `high` など)にしておけば `LLM_PROVIDER` の書き換えだけで切り替えられる。送ったリクエストは `storage/llm-requests/`、受け取った応答は `storage/llm-responses/` に、1 件 1 ファイルの JSON で書き出される。
+
+```bash
+ls -lt storage/llm-responses/                              # 出力ファイルを新しい順に一覧
+cat "$(ls -t storage/llm-responses/*.json | head -1)"      # 最新の応答を表示
+```
+
+どちらのファイルも、`triggers` にフィルタに該当した発言と該当語が入る(保留中に複数該当すれば複数)。応答のファイルの `result` が判定結果、`response` が API の応答そのもの。応答を判定結果として読めなかった場合は、`result` の代わりに `error` に理由が入る。
+
+## テスト
+
+```bash
+docker compose exec backend npm test    # 外部サービスを呼ばない単体テストのみ
 ```
 
 ## 後片付け

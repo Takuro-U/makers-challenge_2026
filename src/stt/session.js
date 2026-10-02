@@ -16,6 +16,8 @@ const RETRY_MAX_MS = 30 * 1000;
 const AUDIO_IDLE_MS = 10 * 1000;
 // 接続待ちの間に保持する音声の上限(約 10 秒)
 const PENDING_MAX_BYTES = SAMPLE_RATE * 2 * 10;
+// 発話の区切り(意味の切れ目で判定)で、言いかけの続きをどれだけ待つか。auto は最長 4 秒
+const TURN_EAGERNESS = 'auto';
 
 const model = requireEnv('STT_MODEL');
 const language = process.env.STT_LANGUAGE ?? 'ja';
@@ -23,17 +25,23 @@ const language = process.env.STT_LANGUAGE ?? 'ja';
 /**
  * 1 本の WebSocket 接続(ブラウザ側)に対応する文字起こしセッション。
  * 内部で OpenAI Realtime API の文字起こしセッションを張り、上限到達やエラー時に自動で張り替える。
- * 発話の区切りはサーバ側の VAD に任せ、区切りごとの確定結果を onFinal で返す。
+ * 発話の区切りはサーバ側に任せて意味の切れ目で判定させ、区切りごとの確定結果を onFinal で返す。
  */
 export class SttSession {
   /**
    * @param {object} opts
    * @param {(text: string) => void} opts.onFinal 確定結果を受け取るコールバック
+   * @param {() => void} [opts.onSpeechStart] 発話が始まったとき(その確定結果はまだ届いていない)
+   * @param {() => void} [opts.onSettled] 進行中の発話がなくなり、確定結果が出そろったとき
    * @param {(message: string) => void} [opts.log]
    */
-  constructor({ onFinal, log = console.log }) {
+  constructor({ onFinal, onSpeechStart = () => {}, onSettled = () => {}, log = console.log }) {
     this.onFinal = onFinal;
+    this.onSpeechStart = onSpeechStart;
+    this.onSettled = onSettled;
     this.log = log;
+    // 発話が始まってから確定結果が届くまでの項目(item_id → 受け取ったセッション)
+    this.openItems = new Map();
     this.socket = null;
     this.socketNo = 0;
     this.speaking = false;
@@ -107,7 +115,7 @@ export class SttSession {
             input: {
               format: { type: 'audio/pcm', rate: SAMPLE_RATE },
               transcription: { model, language },
-              turn_detection: { type: 'server_vad' },
+              turn_detection: { type: 'semantic_vad', eagerness: TURN_EAGERNESS },
               // スマートフォンを卓上に置いて会話を拾う想定
               noise_reduction: { type: 'far_field' },
             },
@@ -142,6 +150,10 @@ export class SttSession {
 
     socket.on('close', (code, reason) => {
       this.log(`[stt] session#${no} closed (${code}${reason.length ? ` ${reason}` : ''})`);
+      // このセッションで確定結果を待っていた発話は、もう届かない
+      for (const [itemId, owner] of this.openItems) {
+        if (owner === socket) this.#closeItem(itemId);
+      }
       // 張り替え済みの旧セッションが閉じた場合は何もしない
       if (this.socket !== socket) return;
       this.socket = null;
@@ -157,6 +169,8 @@ export class SttSession {
         break;
       case 'input_audio_buffer.speech_started':
         if (socket === this.socket) this.speaking = true;
+        this.openItems.set(event.item_id, socket);
+        this.onSpeechStart();
         break;
       case 'input_audio_buffer.speech_stopped':
         if (socket === this.socket) {
@@ -167,12 +181,23 @@ export class SttSession {
       case 'conversation.item.input_audio_transcription.completed': {
         const text = event.transcript?.trim();
         if (text) this.onFinal(text);
+        this.#closeItem(event.item_id);
         break;
       }
+      case 'conversation.item.input_audio_transcription.failed':
+        this.log(`[stt] session#${no} transcription failed: ${event.error?.message ?? JSON.stringify(event)}`);
+        this.#closeItem(event.item_id);
+        break;
       case 'error':
         this.log(`[stt] session#${no} error event: ${event.error?.message ?? JSON.stringify(event)}`);
         break;
     }
+  }
+
+  // 発話の確定結果が届いた(または届かないと決まった)。待っている発話がなくなれば通知する
+  #closeItem(itemId) {
+    this.openItems.delete(itemId);
+    if (this.openItems.size === 0 && !this.closed) this.onSettled();
   }
 
   // 張り替え時刻に達したら、発話中でなければすぐに、発話中なら発話の終わりで張り替える
