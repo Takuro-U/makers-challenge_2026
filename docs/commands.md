@@ -44,7 +44,7 @@ docker compose exec backend node --version  # コンテナ内の Node.js のバ�
 
 ## 文字起こしの出力
 
-確定結果は `storage/transcripts/<開始時刻>_<接続ID>.txt` に書き出される(WebSocket の接続 1 回につき 1 ファイル)。
+確定結果は `storage/transcripts/<開始時刻>_<接続ID>.txt` に書き出される(「開始」から「停止」までの入力 1 回につき 1 ファイル。接続 ID はマイクを担当した端末のもの)。
 
 ```bash
 ls -lt storage/transcripts/                             # 出力ファイルを新しい順に一覧
