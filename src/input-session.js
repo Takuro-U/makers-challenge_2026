@@ -7,8 +7,10 @@ import { RequestDebouncer } from './llm/request-debouncer.js';
 import { writeLlmRequest } from './llm/request-writer.js';
 import { parseRebuttalResult } from './llm/response.js';
 import { writeLlmResponse } from './llm/response-writer.js';
+import { speakRebuttal } from './rebuttal-output.js';
 import { SttSession } from './stt/session.js';
 import { createTranscriptWriter } from './stt/transcript-writer.js';
+import { synthesize } from './tts/speech.js';
 
 const historyBufferSize = requirePositiveInt('HISTORY_BUFFER_SIZE');
 const requestIdleMs = requirePositiveInt('LLM_REQUEST_IDLE_MS');
@@ -22,13 +24,16 @@ if (requestMaxWaitMs <= requestIdleMs) {
  * 受け取った音声を文字起こしセッションへ中継し、確定結果ごとに
  * 履歴バッファへの追記と一次フィルタを行う。
  * フィルタに該当したら、後続の発言を待ってから LLM リクエストを発行する。
+ * 反論ありの判定が返ったら、反論文を音声にして担当の端末で再生させる。
  * @param {object} opts
  * @param {string} opts.id 担当クライアントの接続 ID(ログと出力ファイル名に使う)
  * @param {(message: string) => void} opts.log
+ * @param {{ begin(): boolean, play(audio: Buffer): void }} opts.output 出力モードへの切り替えと、担当の端末への音声の送信
  */
-export function createInputSession({ id, log }) {
+export function createInputSession({ id, log, output }) {
   const writer = createTranscriptWriter(id);
   const history = new HistoryBuffer(historyBufferSize);
+  let closed = false;
 
   // リクエストを 1 回だけ送り、応答を解釈して書き出す。先行するリクエストの打ち切りは行わない
   const requestRebuttal = async (triggers, request) => {
@@ -53,6 +58,12 @@ export function createInputSession({ id, log }) {
     writeLlmResponse(id, record)
       .then((path) => log(`llm response -> ${path}`))
       .catch((err) => log(`llm response の書き出しに失敗しました: ${err.message}`));
+
+    // 応答を待つ間に停止されていたら、再生する相手がいないので合成しない
+    if (record.result?.decision !== 'rebut' || closed) return;
+    const spoken = await speakRebuttal({ text: record.result.rebuttal, synthesize, output, log });
+    // 反論で会話の流れが変わるため、保留中のトリガは発行せずに破棄する
+    if (spoken) debouncer.cancel();
   };
 
   // 保留が明けた時点の履歴でリクエストを組み立てるため、トリガのあとに届いた発言も含まれる
@@ -97,6 +108,7 @@ export function createInputSession({ id, log }) {
       stt.write(chunk);
     },
     close() {
+      closed = true;
       // 保留中のリクエストは発行せずに破棄する
       debouncer.cancel();
       stt.close();

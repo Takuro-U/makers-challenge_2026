@@ -12,9 +12,12 @@ class FakeSocket extends EventEmitter {
   OPEN = 1;
   readyState = 1;
   sent = [];
+  // サーバから届いた音声(バイナリフレーム)
+  audio = [];
 
-  send(data) {
-    this.sent.push(JSON.parse(data));
+  send(data, options) {
+    if (options?.binary) this.audio.push(data);
+    else this.sent.push(JSON.parse(data));
   }
 
   // クライアントからの制御メッセージ(テキストフレーム)
@@ -40,11 +43,11 @@ beforeEach(() => {
   sessions = [];
   handleConnection = createConnectionHandler({
     outputTimeoutMs: 60000,
-    createSession: ({ beginOutput }) => {
+    createSession: ({ output }) => {
       const session = {
         written: [],
         closed: false,
-        beginOutput,
+        output,
         write(chunk) { this.written.push(chunk); },
         close() { this.closed = true; },
       };
@@ -161,7 +164,7 @@ test('出力モードの間は音声を捨て、担当が再生の終了を報�
   const alice = connect();
   const bob = connect();
   alice.receive({ type: 'start' });
-  sessions[0].beginOutput();
+  assert.equal(sessions[0].output.begin(), true);
   assert.deepEqual(alice.sent.at(-1), mode('output', true));
   assert.deepEqual(bob.sent.at(-1), mode('output', false));
 
@@ -173,6 +176,50 @@ test('出力モードの間は音声を捨て、担当が再生の終了を報�
   alice.receive({ type: 'playback_ended' });
   assert.deepEqual(alice.sent.at(-1), mode('input', true));
   assert.equal(sessions.length, 1);
+});
+
+test('出力モードでは、再生する音声を担当にだけバイナリで送る', () => {
+  const alice = connect();
+  const bob = connect();
+  alice.receive({ type: 'start' });
+  sessions[0].output.begin();
+  const speech = Buffer.from([7, 7, 7]);
+  sessions[0].output.play(speech);
+
+  assert.deepEqual(alice.audio, [speech]);
+  assert.deepEqual(bob.audio, []);
+});
+
+test('出力モードでなければ、再生する音声を送らない', () => {
+  const alice = connect();
+  alice.receive({ type: 'start' });
+  sessions[0].output.play(Buffer.from([7, 7, 7]));
+
+  assert.deepEqual(alice.audio, []);
+});
+
+test('担当が停止したあとは、出力モードに切り替えられない', () => {
+  const alice = connect();
+  alice.receive({ type: 'start' });
+  const { output } = sessions[0];
+  alice.receive({ type: 'stop' });
+
+  assert.equal(output.begin(), false);
+  assert.deepEqual(alice.sent.at(-1), mode('standby', false));
+});
+
+test('停止した入力の処理は、あとで始まった別の入力を出力モードに切り替えられない', () => {
+  const alice = connect();
+  const bob = connect();
+  alice.receive({ type: 'start' });
+  const staleOutput = sessions[0].output;
+  alice.receive({ type: 'stop' });
+  bob.receive({ type: 'start' });
+
+  assert.equal(staleOutput.begin(), false);
+  staleOutput.play(Buffer.from([7, 7, 7]));
+  assert.deepEqual(bob.sent.at(-1), mode('input', true));
+  assert.deepEqual(bob.audio, []);
 });
 
 test('読めないメッセージや未知のメッセージは無視する', () => {

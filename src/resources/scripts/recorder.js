@@ -1,4 +1,5 @@
 // サーバが持つモードを WebSocket で受け取って表示し続ける。
+// この端末が担当のときは、サーバから届いた反論の音声を再生する。
 // この端末がマイクの担当になったら、マイク入力をモノラルの 16bit PCM(サンプリングレートはサーバの指定)に変換してサーバへ送る
 
 const MODE_LABELS = { standby: '待機モード', input: '入力モード', output: '出力モード' };
@@ -45,7 +46,11 @@ function connect() {
   ws = socket;
 
   socket.onmessage = (event) => {
-    if (typeof event.data !== 'string') return;
+    // バイナリは、この端末で再生する反論の音声
+    if (typeof event.data !== 'string') {
+      playRebuttal(event.data);
+      return;
+    }
     let message;
     try {
       message = JSON.parse(event.data);
@@ -54,9 +59,11 @@ function connect() {
     }
     if (message.type !== 'mode') return;
     state = { mode: message.mode, owner: message.owner };
-    errorMessage = '';
-    // 担当でなくなった、または開始を断られた場合はマイクを手放す
-    if (!state.owner) stopCapture();
+    if (!state.owner) {
+      // 担当でなくなった、または開始を断られた場合はマイクを手放す。担当の間のエラー表示は残す
+      errorMessage = '';
+      stopCapture();
+    }
     render();
   };
   // 接続の失敗でも発火する。モードを表示し続けるため、時間をおいて接続し直す
@@ -88,6 +95,29 @@ async function startCapture() {
     if (state?.owner && state.mode === 'input' && ws?.readyState === WebSocket.OPEN) ws.send(event.data);
   };
   source.connect(encoder);
+}
+
+function reportPlaybackEnded() {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'playback_ended' }));
+}
+
+// 反論の音声(MP3)を再生し、終わったらサーバへ報告する。
+// 「開始」の操作で動き出したマイク用の AudioContext で再生するため、自動再生の制限に掛からない
+async function playRebuttal(data) {
+  try {
+    if (!audioContext) throw new Error('マイクを担当していません');
+    const buffer = await audioContext.decodeAudioData(data);
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.onended = reportPlaybackEnded;
+    source.start();
+  } catch (err) {
+    // 再生できなくても報告し、出力モードのまま止まらないようにする
+    errorMessage = `反論を再生できません(${err.message})`;
+    render();
+    reportPlaybackEnded();
+  }
 }
 
 function stopCapture() {

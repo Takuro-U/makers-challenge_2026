@@ -12,10 +12,12 @@ import { ModeController } from './mode-controller.js';
  *
  * サーバ → クライアント
  * - テキスト `{"type":"mode","mode":"standby"|"input"|"output","owner":boolean}`: 現在のモードと、宛先が担当かどうか
+ * - バイナリ: 再生する反論の音声(出力モードの担当にだけ送る)
  *
  * @param {object} opts
- * @param {(opts: { id: string, log: (message: string) => void, beginOutput: () => boolean }) => { write(chunk: Buffer): void, close(): void }} opts.createSession
- *   入力の処理を作る。担当が開始してから停止するまでを 1 回分とする。beginOutput は反論の再生を始めるときに呼ぶ
+ * @param {(opts: { id: string, log: (message: string) => void, output: { begin(): boolean, play(audio: Buffer): void } }) => { write(chunk: Buffer): void, close(): void }} opts.createSession
+ *   入力の処理を作る。担当が開始してから停止するまでを 1 回分とする。
+ *   output.begin() は出力モードへ切り替え(切り替えられなければ false)、output.play() は担当の端末に音声を再生させる
  * @param {number} opts.outputTimeoutMs 再生終了の報告が届かない場合に、出力モードを打ち切るまでの時間
  */
 export function createConnectionHandler({ createSession, outputTimeoutMs }) {
@@ -28,15 +30,32 @@ export function createConnectionHandler({ createSession, outputTimeoutMs }) {
     ws.send(JSON.stringify({ type: 'mode', mode: controller.mode, owner: ws === controller.owner }));
   };
 
+  // 入力の処理 1 回分に渡す出力の口。停止したあとに届いた反論が、
+  // あとで始まった別の入力へ割り込まないよう、現在の入力の処理のものだけを有効にする
+  let currentOutput = null;
+  const createOutput = () => {
+    const output = {
+      begin: () => output === currentOutput && controller.beginOutput(),
+      play: (audio) => {
+        const ws = controller.owner;
+        if (output !== currentOutput || controller.mode !== 'output' || ws.readyState !== ws.OPEN) return;
+        ws.send(audio, { binary: true });
+      },
+    };
+    return output;
+  };
+
   const controller = new ModeController({
     outputTimeoutMs,
     onChange: () => {
       if (controller.mode === 'standby') {
         session?.close();
         session = null;
+        currentOutput = null;
       } else if (!session) {
         const { id, log } = clients.get(controller.owner);
-        session = createSession({ id, log, beginOutput: () => controller.beginOutput() });
+        currentOutput = createOutput();
+        session = createSession({ id, log, output: currentOutput });
       }
       for (const ws of clients.keys()) sendMode(ws);
     },

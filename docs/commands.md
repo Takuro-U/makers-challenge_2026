@@ -62,6 +62,8 @@ cat "$(ls -t storage/llm-responses/*.json | head -1)"      # 最新の応答を�
 
 どちらのファイルも、`triggers` にフィルタに該当した発言と該当語が入る(保留中に複数該当すれば複数)。応答のファイルの `result` が判定結果、`response` が API の応答そのもの。応答を判定結果として読めなかった場合は、`result` の代わりに `error` に理由が入る。
 
+判定が反論あり(`rebut`)なら、反論文を `TTS_MODEL` / `TTS_VOICE` の設定で音声に合成し、マイクを担当している端末で再生する。合成した音声はファイルには残さない。口調は `src/tts/prompts/voice-instructions.md` で調整する(変更後はサーバの再起動が必要)。
+
 ## テスト
 
 ```bash
