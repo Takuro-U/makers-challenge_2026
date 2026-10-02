@@ -1,17 +1,20 @@
-// Float32 の入力を 24kHz の 16bit PCM(リトルエンディアン)に変換し、約 100ms ごとにメインスレッドへ渡す
-// 24kHz は OpenAI Realtime API の入力形式(src/stt/session.js の SAMPLE_RATE)に合わせている
-
-const TARGET_RATE = 24000;
-const CHUNK_SAMPLES = TARGET_RATE / 10;
+// Float32 の入力を、サーバが指定するサンプリングレートの 16bit PCM(リトルエンディアン)に変換し、
+// 一定の長さごとにメインスレッドへ渡す
 
 class PcmEncoder extends AudioWorkletProcessor {
-  constructor() {
+  /**
+   * @param {{ processorOptions: { targetRate: number, chunkMs: number } }} options
+   *   targetRate は変換後のサンプリングレート、chunkMs は 1 回に渡す音声の長さ(どちらもサーバが /config.json で配る値)
+   */
+  constructor(options) {
     super();
+    const { targetRate, chunkMs } = options.processorOptions;
     // sampleRate は AudioWorkletGlobalScope のグローバル(入力側のレート)
-    this.step = sampleRate / TARGET_RATE;
+    this.step = sampleRate / targetRate;
     this.pos = 0;
     this.prev = 0;
-    this.buffer = new Int16Array(CHUNK_SAMPLES);
+    this.chunkSamples = Math.round(targetRate * chunkMs / 1000);
+    this.buffer = new Int16Array(this.chunkSamples);
     this.length = 0;
   }
 
@@ -27,9 +30,9 @@ class PcmEncoder extends AudioWorkletProcessor {
       const b = input[i + 1];
       const sample = Math.max(-1, Math.min(1, a + (b - a) * frac));
       this.buffer[this.length++] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-      if (this.length === CHUNK_SAMPLES) {
+      if (this.length === this.chunkSamples) {
         this.port.postMessage(this.buffer.buffer, [this.buffer.buffer]);
-        this.buffer = new Int16Array(CHUNK_SAMPLES);
+        this.buffer = new Int16Array(this.chunkSamples);
         this.length = 0;
       }
       this.pos += this.step;

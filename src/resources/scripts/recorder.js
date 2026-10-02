@@ -1,8 +1,6 @@
 // サーバが持つモードを WebSocket で受け取って表示し続ける。
-// この端末がマイクの担当になったら、マイク入力を 24kHz・モノラルの 16bit PCM に変換してサーバへ送る
+// この端末がマイクの担当になったら、マイク入力をモノラルの 16bit PCM(サンプリングレートはサーバの指定)に変換してサーバへ送る
 
-// 切断されたあと、再接続を試みるまでの時間
-const RECONNECT_DELAY_MS = 2000;
 const MODE_LABELS = { standby: '待機モード', input: '入力モード', output: '出力モード' };
 
 const modeText = document.getElementById('mode');
@@ -10,6 +8,12 @@ const startButton = document.getElementById('start');
 const stopButton = document.getElementById('stop');
 const statusText = document.getElementById('status');
 
+// サーバが /config.json で配る設定値
+// wsPath: WebSocket の接続先のパス
+// sampleRate: サーバへ送る音声のサンプリングレート
+// reconnectDelayMs: 切断されたあと、再接続を試みるまでの時間
+// audioChunkMs: 音声を送る 1 回分の長さ
+let config = null;
 let ws = null;
 // サーバから受け取った最新の状態 { mode, owner }。接続していない間は null
 let state = null;
@@ -36,7 +40,7 @@ function render() {
 
 function connect() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  const socket = new WebSocket(`${scheme}://${location.host}/ws`);
+  const socket = new WebSocket(`${scheme}://${location.host}${config.wsPath}`);
   socket.binaryType = 'arraybuffer';
   ws = socket;
 
@@ -61,7 +65,7 @@ function connect() {
     state = null;
     stopCapture();
     render();
-    setTimeout(connect, RECONNECT_DELAY_MS);
+    setTimeout(connect, config.reconnectDelayMs);
   };
 }
 
@@ -75,7 +79,10 @@ async function startCapture() {
   await audioContext.audioWorklet.addModule('/scripts/pcm-worklet.js');
   const source = audioContext.createMediaStreamSource(mediaStream);
   // 出力を持たないノードにして、destination に繋がなくても処理されるようにする
-  const encoder = new AudioWorkletNode(audioContext, 'pcm-encoder', { numberOfOutputs: 0 });
+  const encoder = new AudioWorkletNode(audioContext, 'pcm-encoder', {
+    numberOfOutputs: 0,
+    processorOptions: { targetRate: config.sampleRate, chunkMs: config.audioChunkMs },
+  });
   encoder.port.onmessage = (event) => {
     // サーバも担当以外や出力モード中の音声は捨てるが、無駄な送信を避ける
     if (state?.owner && state.mode === 'input' && ws?.readyState === WebSocket.OPEN) ws.send(event.data);
@@ -112,7 +119,21 @@ function stop() {
   stopCapture();
 }
 
+// 設定値を受け取ってから接続を始める
+async function init() {
+  render();
+  try {
+    const response = await fetch('/config.json');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    config = await response.json();
+  } catch (err) {
+    errorMessage = `設定を取得できません(${err.message})`;
+    render();
+    return;
+  }
+  connect();
+}
+
 startButton.addEventListener('click', start);
 stopButton.addEventListener('click', stop);
-render();
-connect();
+init();

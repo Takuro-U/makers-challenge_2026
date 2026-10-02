@@ -1,5 +1,7 @@
+import { requirePositiveInt } from '../lib/env.js';
+
 // 切断を通知せずに消えたクライアントを検出する間隔。1 周期の間に pong が返らなければ切断する
-const HEARTBEAT_INTERVAL_MS = 15 * 1000;
+const intervalMs = requirePositiveInt('HEARTBEAT_INTERVAL_MS');
 
 /**
  * WebSocket サーバの全クライアントに定期的に ping を送り、応答のないクライアントを切断する。
@@ -22,6 +24,6 @@ export function startHeartbeat(wss) {
       ws.isAlive = false;
       ws.ping();
     }
-  }, HEARTBEAT_INTERVAL_MS);
+  }, intervalMs);
   wss.on('close', () => clearInterval(timer));
 }

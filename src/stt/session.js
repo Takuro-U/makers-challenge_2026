@@ -1,23 +1,25 @@
 import WebSocket from 'ws';
-import { requireEnv } from '../lib/env.js';
+import { SAMPLE_RATE } from '../lib/constants.js';
+import { failStartup, requireEnv, requireOneOf, requirePositiveInt } from '../lib/env.js';
 
 const REALTIME_URL = 'wss://api.openai.com/v1/realtime?intent=transcription';
-// 入力音声の形式(16bit PCM・モノラル・24kHz)
-export const SAMPLE_RATE = 24000;
 
 // セッションの上限に達する前に張り替える間隔。発話中は張り替えを発話の終わりまで待つ
-const ROTATE_INTERVAL_MS = 25 * 60 * 1000;
+const rotateIntervalMs = requirePositiveInt('STT_ROTATE_INTERVAL_MS');
 // 張り替え後、旧セッションの残りの確定結果を待つ時間
-const ROTATE_GRACE_MS = 5 * 1000;
-// エラー時の再接続待ち時間(指数的に延ばす)
-const RETRY_BASE_MS = 1000;
-const RETRY_MAX_MS = 30 * 1000;
+const rotateGraceMs = requirePositiveInt('STT_ROTATE_GRACE_MS');
+// エラー時の再接続待ち時間(下限から上限まで指数的に延ばす)
+const retryBaseMs = requirePositiveInt('STT_RETRY_BASE_MS');
+const retryMaxMs = requirePositiveInt('STT_RETRY_MAX_MS');
+if (retryMaxMs < retryBaseMs) {
+  failStartup('STT_RETRY_MAX_MS は STT_RETRY_BASE_MS 以上の値で指定してください');
+}
 // 張り替え時刻にこの時間以上音声が届いていなければ、張り替えずに接続を閉じる(次の音声で開き直す)
-const AUDIO_IDLE_MS = 10 * 1000;
-// 接続待ちの間に保持する音声の上限(約 10 秒)
-const PENDING_MAX_BYTES = SAMPLE_RATE * 2 * 10;
-// 発話の区切り(意味の切れ目で判定)で、言いかけの続きをどれだけ待つか。auto は最長 4 秒
-const TURN_EAGERNESS = 'auto';
+const audioIdleMs = requirePositiveInt('STT_AUDIO_IDLE_MS');
+// 接続待ちの間に保持する音声の上限(1 サンプル 2 バイト)
+const pendingMaxBytes = Math.floor(SAMPLE_RATE * 2 * requirePositiveInt('STT_PENDING_AUDIO_MS') / 1000);
+// 発話の区切り(意味の切れ目で判定)で、言いかけの続きをどれだけ待つか
+const turnEagerness = requireOneOf('STT_TURN_EAGERNESS', ['low', 'medium', 'high', 'auto']);
 
 const model = requireEnv('STT_MODEL');
 const language = process.env.STT_LANGUAGE ?? 'ja';
@@ -48,7 +50,7 @@ export class SttSession {
     this.rotateDue = false;
     this.rotateTimer = null;
     this.retryTimer = null;
-    this.retryDelay = RETRY_BASE_MS;
+    this.retryDelay = retryBaseMs;
     this.pending = [];
     this.pendingBytes = 0;
     this.lastAudioAt = 0;
@@ -86,7 +88,7 @@ export class SttSession {
     this.pending.push(chunk);
     this.pendingBytes += chunk.length;
     // 上限を超えた分は古いものから捨てる
-    while (this.pendingBytes > PENDING_MAX_BYTES) {
+    while (this.pendingBytes > pendingMaxBytes) {
       this.pendingBytes -= this.pending.shift().length;
     }
   }
@@ -115,7 +117,7 @@ export class SttSession {
             input: {
               format: { type: 'audio/pcm', rate: SAMPLE_RATE },
               transcription: { model, language },
-              turn_detection: { type: 'semantic_vad', eagerness: TURN_EAGERNESS },
+              turn_detection: { type: 'semantic_vad', eagerness: turnEagerness },
               // スマートフォンを卓上に置いて会話を拾う想定
               noise_reduction: { type: 'far_field' },
             },
@@ -130,7 +132,7 @@ export class SttSession {
 
       this.rotateDue = false;
       clearTimeout(this.rotateTimer);
-      this.rotateTimer = setTimeout(() => this.#requestRotate(), ROTATE_INTERVAL_MS);
+      this.rotateTimer = setTimeout(() => this.#requestRotate(), rotateIntervalMs);
       this.log(`[stt] session#${no} opened (${model}, ${language})`);
     });
 
@@ -165,7 +167,7 @@ export class SttSession {
   #handleEvent(socket, no, event) {
     switch (event.type) {
       case 'session.updated':
-        this.retryDelay = RETRY_BASE_MS;
+        this.retryDelay = retryBaseMs;
         break;
       case 'input_audio_buffer.speech_started':
         if (socket === this.socket) this.speaking = true;
@@ -203,7 +205,7 @@ export class SttSession {
   // 張り替え時刻に達したら、発話中でなければすぐに、発話中なら発話の終わりで張り替える
   #requestRotate() {
     if (this.closed) return;
-    if (Date.now() - this.lastAudioAt > AUDIO_IDLE_MS) {
+    if (Date.now() - this.lastAudioAt > audioIdleMs) {
       // 音声が途絶えているので新しいセッションは開かない。次の音声の到着時に write() が開き直す
       this.log('[stt] 音声が届いていないため、張り替えずに接続を閉じます');
       this.#detachCurrent()?.close();
@@ -220,7 +222,7 @@ export class SttSession {
   #rotate() {
     this.rotateDue = false;
     const old = this.#detachCurrent();
-    setTimeout(() => old?.close(), ROTATE_GRACE_MS);
+    setTimeout(() => old?.close(), rotateGraceMs);
     this.#open();
   }
 
@@ -233,7 +235,7 @@ export class SttSession {
   #scheduleRetry() {
     if (this.closed || this.retryTimer) return;
     const delay = this.retryDelay;
-    this.retryDelay = Math.min(this.retryDelay * 2, RETRY_MAX_MS);
+    this.retryDelay = Math.min(this.retryDelay * 2, retryMaxMs);
     this.log(`[stt] ${delay}ms 後に再接続します`);
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
