@@ -72,11 +72,25 @@ cat "$(ls -dt storage/logs/*/ | head -1)"report-1.json       # 最新の入力�
 | `llm.durationMs` | リクエストの送信から応答までの時間(ミリ秒) |
 | `llm.result` | 判定結果(`decision` / `reason` / `rebuttal` / `sources`) |
 | `llm.error` | 送信に失敗した、または応答を判定結果として読めなかった理由。読めなかった場合は `llm.text` に応答のテキストが入る |
-| `tts.durationMs` | 音声合成にかかった時間(ミリ秒)。`tts` は合成を行ったときだけ入る |
+| `tts.firstChunkMs` | 音声合成を依頼してから、最初の音声が届くまでの時間(ミリ秒)。再生が始まるまでの待ち時間にあたる |
+| `tts.durationMs` | 音声合成を依頼してから、音声を最後まで受け取るまでの時間(ミリ秒)。`tts` は合成を行ったときだけ入る |
 | `tts.played` | 担当の端末で再生を始めさせたか |
 | `tts.error` | 合成に失敗した理由 |
 
-判定が反論あり(`rebut`)なら、反論文を `TTS_MODEL` / `TTS_VOICE` / `TTS_SPEED`(読み上げの速さの倍率。`1.0` が等速)の設定で音声に合成し、マイクを担当している端末で再生する。合成した音声はファイルには残さない。口調は `src/tts/prompts/voice-instructions.md` で調整する(変更後はサーバの再起動が必要)。
+判定が反論あり(`rebut`)なら、反論文を `TTS_MODEL` / `TTS_VOICE` / `TTS_SPEED`(読み上げの速さの倍率。`1.0` が等速)の設定で音声に合成し、マイクを担当している端末で再生する。音声は合成が終わるのを待たず、届いた分から順に再生する。合成した音声はファイルには残さない。口調は `src/tts/prompts/voice-instructions.md` で調整する(変更後はサーバの再起動が必要)。
+
+## ハードウェア制御
+
+反論の再生を始めるとき(最初の音声を端末へ送る直前)に、`src/hardware/react.js` の `react()` を呼び、サーボと効果音を動かす。動作の終了は待たずに再生を進め、失敗した場合は理由をサーバのログに出す。
+
+`HARDWARE_CONTROL` で実機を動かすかどうかを切り替える。`on` なら起動時に I2C と GPIO を初期化し(`src/hardware/device.js`)、できなければ起動を中止する。`off` なら実機に触れず、何もせずに通過する(実機のない開発環境・コンテナ向け)。
+
+サーボを戻す操作と一連の動作確認は、コマンドで直接実行する。
+
+```bash
+node --env-file=.env src/hardware/reset.js     # サーボを開始位置に戻す
+node --env-file=.env src/hardware/test-all.js  # 反応とリセットを 3 回繰り返す
+```
 
 ## テスト
 

@@ -184,18 +184,32 @@ test('出力モードでは、再生する音声を担当にだけバイナリ�
   alice.receive({ type: 'start' });
   sessions[0].output.begin();
   const speech = Buffer.from([7, 7, 7]);
-  sessions[0].output.play(speech);
+  assert.equal(sessions[0].output.play(speech), true);
 
   assert.deepEqual(alice.audio, [speech]);
   assert.deepEqual(bob.audio, []);
 });
 
-test('出力モードでなければ、再生する音声を送らない', () => {
+test('出力モードでは、音声を送り終えたことを担当にだけ知らせる', () => {
+  const alice = connect();
+  const bob = connect();
+  alice.receive({ type: 'start' });
+  sessions[0].output.begin();
+  const bobCount = bob.sent.length;
+  sessions[0].output.end();
+
+  assert.deepEqual(alice.sent.at(-1), { type: 'audio_end' });
+  assert.equal(bob.sent.length, bobCount);
+});
+
+test('出力モードでなければ、再生する音声も終わりの通知も送らない', () => {
   const alice = connect();
   alice.receive({ type: 'start' });
-  sessions[0].output.play(Buffer.from([7, 7, 7]));
+  assert.equal(sessions[0].output.play(Buffer.from([7, 7, 7])), false);
+  sessions[0].output.end();
 
   assert.deepEqual(alice.audio, []);
+  assert.deepEqual(alice.sent.at(-1), mode('input', true));
 });
 
 test('担当が停止したあとは、出力モードに切り替えられない', () => {

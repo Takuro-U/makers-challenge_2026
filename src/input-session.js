@@ -1,3 +1,4 @@
+import { react } from './hardware/react.js';
 import { HistoryBuffer } from './history-buffer.js';
 import { failStartup, requirePositiveInt } from './lib/env.js';
 import { matchLocalTerms } from './llm/local-filter.js';
@@ -30,7 +31,8 @@ const elapsedMs = (since) => Math.round(performance.now() - since);
  * 文字起こしとリクエストごとの動作レポートを、1 回分のログの置き場所に書き出す。
  * @param {string} opts.id 担当クライアントの接続 ID
  * @param {(message: string) => void} opts.log
- * @param {{ begin(): boolean, play(audio: Buffer): void }} opts.output 出力モードへの切り替えと、担当の端末への音声の送信
+ * @param {{ begin(): boolean, play(audio: Buffer): boolean, end(): void }} opts.output
+ *   出力モードへの切り替えと、担当の端末への音声の送信、音声の終わりの通知
  */
 export function createInputSession({ id, log, output }) {
   const sessionLog = createSessionLog();
@@ -71,10 +73,13 @@ export function createInputSession({ id, log, output }) {
     // 応答を待つ間に停止されていたら、再生する相手がいないので合成しない
     if (result?.decision !== 'rebut' || closed) return;
     report.tts = {};
-    const timedSynthesize = async (rebuttal) => {
+    const timedSynthesize = async function* (rebuttal) {
       const startedAt = performance.now();
       try {
-        return await synthesize(rebuttal);
+        for await (const chunk of synthesize(rebuttal)) {
+          report.tts.firstChunkMs ??= elapsedMs(startedAt);
+          yield chunk;
+        }
       } catch (err) {
         report.tts.error = err.message;
         throw err;
@@ -82,7 +87,16 @@ export function createInputSession({ id, log, output }) {
         report.tts.durationMs = elapsedMs(startedAt);
       }
     };
-    const spoken = await speakRebuttal({ text: result.rebuttal, synthesize: timedSynthesize, output, log });
+    const spoken = await speakRebuttal({
+      text: result.rebuttal,
+      synthesize: timedSynthesize,
+      output,
+      log,
+      // 再生を遅らせないよう、ハードウェアの動作の終了は待たない
+      onStart: () => {
+        react().catch((err) => log(`ハードウェア制御に失敗しました: ${err.message}`));
+      },
+    });
     report.tts.played = spoken;
     // 反論で会話の流れが変わるため、保留中のトリガは発行せずに破棄する
     if (spoken) debouncer.cancel();

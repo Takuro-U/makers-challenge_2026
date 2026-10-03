@@ -15,5 +15,10 @@
     "@anthropic-ai/sdk": "^0.131.0",
     "openai": "^6.49.0",
     "ws": "^8.22.0"
+  },
+  "optionalDependencies": {
+    "@chirimen/pca9685": "^2.0.0",
+    "node-web-gpio": "^2.0.0",
+    "node-web-i2c": "^1.1.90"
   }
 }

@@ -14,6 +14,7 @@ const statusText = document.getElementById('status');
 // sampleRate: サーバへ送る音声のサンプリングレート
 // reconnectDelayMs: 切断されたあと、再接続を試みるまでの時間
 // audioChunkMs: 音声を送る 1 回分の長さ
+// speechSampleRate: サーバから届く反論の音声のサンプリングレート
 let config = null;
 let ws = null;
 // サーバから受け取った最新の状態 { mode, owner }。接続していない間は null
@@ -23,6 +24,13 @@ let starting = false;
 let errorMessage = '';
 let audioContext = null;
 let mediaStream = null;
+// 再生中の反論 { sources: 再生待ち・再生中の音声, nextTime: 次の音声を鳴らし始める時刻, ended: サーバが送り終えたか }
+let playback = null;
+// 再生に失敗して終了を報告済みの間は true
+let playbackFailed = false;
+
+// 最初の音声を鳴らし始めるまでの余裕(秒)。続きが届く前に途切れるのを防ぐ
+const PLAYBACK_LEAD_SEC = 0.15;
 
 function describeStatus() {
   if (errorMessage) return `エラー: ${errorMessage}`;
@@ -48,7 +56,7 @@ function connect() {
   socket.onmessage = (event) => {
     // バイナリは、この端末で再生する反論の音声
     if (typeof event.data !== 'string') {
-      playRebuttal(event.data);
+      playRebuttalChunk(event.data);
       return;
     }
     let message;
@@ -57,8 +65,15 @@ function connect() {
     } catch {
       return;
     }
+    if (message.type === 'audio_end') {
+      endRebuttal();
+      return;
+    }
     if (message.type !== 'mode') return;
     state = { mode: message.mode, owner: message.owner };
+    // 出力モードの切り替わりごとに再生の状態を作り直す。出力モードを抜けたら、鳴っている音声も止める
+    stopPlayback();
+    playbackFailed = false;
     if (!state.owner) {
       // 担当でなくなった、または開始を断られた場合はマイクを手放す。担当の間のエラー表示は残す
       errorMessage = '';
@@ -101,26 +116,69 @@ function reportPlaybackEnded() {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'playback_ended' }));
 }
 
-// 反論の音声(MP3)を再生し、終わったらサーバへ報告する。
+// 再生中の音声をすべて止め、再生の状態を捨てる
+function stopPlayback() {
+  for (const source of playback?.sources ?? []) {
+    source.onended = null;
+    source.stop();
+  }
+  playback = null;
+}
+
+// 送られた音声をすべて再生し終えていたら、サーバへ報告する
+function finishPlaybackIfDone() {
+  if (!playback?.ended || playback.sources.size > 0) return;
+  playback = null;
+  reportPlaybackEnded();
+}
+
+// 反論の音声(16bit PCM・モノラル)を、届いた順に途切れなく続けて再生する。
 // 「開始」の操作で動き出したマイク用の AudioContext で再生するため、自動再生の制限に掛からない
-async function playRebuttal(data) {
+function playRebuttalChunk(data) {
+  // 出力モードが終わったあとに届いた分や、再生に失敗したあとの残りは捨てる
+  if (!state?.owner || state.mode !== 'output' || playbackFailed) return;
   try {
     if (!audioContext) throw new Error('マイクを担当していません');
-    const buffer = await audioContext.decodeAudioData(data);
+    const samples = new Int16Array(data);
+    // サンプリングレートの変換は AudioContext に任せる
+    const buffer = audioContext.createBuffer(1, samples.length, config.speechSampleRate);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 0x8000;
+
+    const current = playback ??= { sources: new Set(), nextTime: 0, ended: false };
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
-    source.onended = reportPlaybackEnded;
-    source.start();
+    source.onended = () => {
+      current.sources.delete(source);
+      if (current === playback) finishPlaybackIfDone();
+    };
+    // 前の音声の終わりに続けて鳴らす。予約が尽きていたら、少し先から鳴らし直す
+    const startAt = Math.max(current.nextTime, audioContext.currentTime + PLAYBACK_LEAD_SEC);
+    source.start(startAt);
+    current.nextTime = startAt + buffer.duration;
+    current.sources.add(source);
   } catch (err) {
     // 再生できなくても報告し、出力モードのまま止まらないようにする
     errorMessage = `反論を再生できません(${err.message})`;
     render();
+    playbackFailed = true;
+    stopPlayback();
     reportPlaybackEnded();
   }
 }
 
+// サーバが反論の音声を送り終えた。残りを再生し終えたら報告する
+function endRebuttal() {
+  if (playbackFailed) return;
+  // 音声が 1 つも届いていなくても報告し、出力モードのまま止まらないようにする
+  playback ??= { sources: new Set(), nextTime: 0, ended: false };
+  playback.ended = true;
+  finishPlaybackIfDone();
+}
+
 function stopCapture() {
+  stopPlayback();
   mediaStream?.getTracks().forEach((track) => track.stop());
   mediaStream = null;
   audioContext?.close();

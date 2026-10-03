@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join, normalize, sep } from 'node:path';
-import { SAMPLE_RATE, WS_PATH } from '../lib/constants.js';
+import { SAMPLE_RATE, SPEECH_SAMPLE_RATE, WS_PATH } from '../lib/constants.js';
 import { requirePositiveInt } from '../lib/env.js';
 
 const RESOURCES_DIR = join(import.meta.dirname, '..', 'resources');
@@ -14,6 +14,7 @@ const CONTENT_TYPES = {
 const clientConfig = JSON.stringify({
   wsPath: WS_PATH,
   sampleRate: SAMPLE_RATE,
+  speechSampleRate: SPEECH_SAMPLE_RATE,
   reconnectDelayMs: requirePositiveInt('CLIENT_RECONNECT_DELAY_MS'),
   audioChunkMs: requirePositiveInt('CLIENT_AUDIO_CHUNK_MS'),
 });

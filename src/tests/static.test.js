@@ -41,6 +41,7 @@ test('/config.json で、ブラウザ側が使う設定値を返す', async () =
   assert.deepEqual(JSON.parse(res.body), {
     wsPath: '/ws',
     sampleRate: 24000,
+    speechSampleRate: 24000,
     reconnectDelayMs: 2500,
     audioChunkMs: 120,
   });
