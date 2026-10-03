@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import OpenAI from 'openai';
-import { failStartup, requireEnv } from '../lib/env.js';
+import { failStartup, requireEnv, requireNumberInRange } from '../lib/env.js';
 
 const INSTRUCTIONS_PATH = join(import.meta.dirname, 'prompts', 'voice-instructions.md');
 
@@ -9,6 +9,8 @@ const client = new OpenAI({ apiKey: requireEnv('OPENAI_API_KEY') });
 
 const model = requireEnv('TTS_MODEL');
 const voice = requireEnv('TTS_VOICE');
+// 読み上げの速さ(倍率)。範囲は API が受け付ける値に合わせる
+const speed = requireNumberInRange('TTS_SPEED', 0.25, 4);
 
 function readInstructions() {
   try {
@@ -33,6 +35,7 @@ export function buildSpeechRequest(text) {
     input: text,
     instructions,
     response_format: 'mp3',
+    speed,
   };
 }
 

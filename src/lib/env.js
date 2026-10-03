@@ -23,6 +23,16 @@ export function requirePositiveInt(name) {
   return value;
 }
 
+/** 必須の数値。min 以上 max 以下 */
+export function requireNumberInRange(name, min, max) {
+  const raw = requireEnv(name);
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min || value > max) {
+    failStartup(`環境変数 ${name} は ${min} 以上 ${max} 以下の数値で指定してください(現在: ${raw})`);
+  }
+  return value;
+}
+
 /** 必須の列挙値 */
 export function requireOneOf(name, allowed) {
   const value = requireEnv(name);

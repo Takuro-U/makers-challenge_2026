@@ -76,7 +76,7 @@ cat "$(ls -dt storage/logs/*/ | head -1)"report-1.json       # 最新の入力�
 | `tts.played` | 担当の端末で再生を始めさせたか |
 | `tts.error` | 合成に失敗した理由 |
 
-判定が反論あり(`rebut`)なら、反論文を `TTS_MODEL` / `TTS_VOICE` の設定で音声に合成し、マイクを担当している端末で再生する。合成した音声はファイルには残さない。口調は `src/tts/prompts/voice-instructions.md` で調整する(変更後はサーバの再起動が必要)。
+判定が反論あり(`rebut`)なら、反論文を `TTS_MODEL` / `TTS_VOICE` / `TTS_SPEED`(読み上げの速さの倍率。`1.0` が等速)の設定で音声に合成し、マイクを担当している端末で再生する。合成した音声はファイルには残さない。口調は `src/tts/prompts/voice-instructions.md` で調整する(変更後はサーバの再起動が必要)。
 
 ## テスト
 

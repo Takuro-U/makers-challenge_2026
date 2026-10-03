@@ -11,6 +11,7 @@ Object.assign(process.env, {
   OPENAI_API_KEY: 'test-key',
   TTS_MODEL: 'test-tts-model',
   TTS_VOICE: 'test-voice',
+  TTS_SPEED: '1.25',
 });
 const { buildSpeechRequest } = await import('../tts/speech.js');
 
@@ -26,6 +27,7 @@ test('設定と反論文から、MP3 で受け取る音声合成のリクエス�
     input: '三重県は近畿地方にも数えられますよ。',
     instructions: voiceInstructions,
     response_format: 'mp3',
+    speed: 1.25,
   });
 });
 
