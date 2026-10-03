@@ -71,8 +71,9 @@ test('最初の音声が届くまでは出力モードに切り替えず、届�
   assert.deepEqual(events, ['begin', ['play', first], ['play', second], 'end']);
 });
 
-test('出力モードに切り替えたら、最初の音声を送る前に再生の開始を知らせる', async () => {
-  await speakRebuttal({
+test('出力モードに切り替えたら、再生開始時の処理が終わるのを待ってから最初の音声を送る', async () => {
+  let finishStart;
+  const speaking = speakRebuttal({
     text: '反論文',
     synthesize: async function* () {
       yield first;
@@ -80,10 +81,42 @@ test('出力モードに切り替えたら、最初の音声を送る前に再�
     },
     output,
     log: (message) => logs.push(message),
-    onStart: () => events.push('start'),
+    onStart: () => {
+      events.push('start');
+      return new Promise((resolve) => { finishStart = resolve; });
+    },
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['begin', 'start']);
+
+  finishStart();
+  assert.equal(await speaking, true);
+  assert.deepEqual(events, ['begin', 'start', ['play', first], ['play', second], 'end']);
+});
+
+test('再生開始時の処理に失敗したら、音声を送らずに終わりを知らせ、残りの合成を打ち切る', async () => {
+  let finished = false;
+  const spoken = await speakRebuttal({
+    text: '反論文',
+    synthesize: async function* () {
+      try {
+        yield first;
+        yield second;
+      } finally {
+        finished = true;
+      }
+    },
+    output,
+    log: (message) => logs.push(message),
+    onStart: async () => {
+      throw new Error('サーボが応答しません');
+    },
   });
 
-  assert.deepEqual(events, ['begin', 'start', ['play', first], ['play', second], 'end']);
+  assert.equal(spoken, false);
+  assert.equal(finished, true);
+  assert.deepEqual(events, ['begin', 'end']);
+  assert.match(logs.join('\n'), /サーボが応答しません/);
 });
 
 test('出力モードに切り替えられなければ、再生の開始を知らせない', async () => {

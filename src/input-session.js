@@ -92,9 +92,18 @@ export function createInputSession({ id, log, output }) {
       synthesize: timedSynthesize,
       output,
       log,
-      // 再生を遅らせないよう、ハードウェアの動作の終了は待たない
-      onStart: () => {
-        react().catch((err) => log(`ハードウェア制御に失敗しました: ${err.message}`));
+      // ハードウェアへの指示を出し終えてから読み上げを始める。指示に失敗したら読み上げない
+      onStart: async () => {
+        const startedAt = performance.now();
+        report.control = {};
+        try {
+          await react();
+        } catch (err) {
+          report.control.error = err.message;
+          throw err;
+        } finally {
+          report.control.durationMs = elapsedMs(startedAt);
+        }
       },
     });
     report.tts.played = spoken;

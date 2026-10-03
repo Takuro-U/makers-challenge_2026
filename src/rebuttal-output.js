@@ -8,7 +8,8 @@
  * @param {{ begin(): boolean, play(audio: Buffer): boolean, end(): void }} opts.output
  *   出力モードへの切り替えと、担当の端末への音声の送信、音声の終わりの通知
  * @param {(message: string) => void} opts.log
- * @param {() => void} [opts.onStart] 出力モードに切り替えて、再生を始めさせるときに呼ぶ
+ * @param {() => Promise<void>} [opts.onStart]
+ *   出力モードに切り替えたあと、最初の音声を送る前に呼ぶ。終わるまで音声を送らず、失敗したら再生させない
  * @returns {Promise<boolean>} 再生を始めさせたか
  */
 export async function speakRebuttal({ text, synthesize, output, log, onStart }) {
@@ -22,7 +23,14 @@ export async function speakRebuttal({ text, synthesize, output, log, onStart }) 
           return false;
         }
         started = true;
-        onStart?.();
+        // 再生開始時の処理が終わってから音声を送る。失敗したら反論の出力全体を取りやめる
+        try {
+          await onStart?.();
+        } catch (err) {
+          log(`再生開始時の処理に失敗したため、反論の音声を破棄しました: ${err.message}`);
+          output.end();
+          return false;
+        }
       }
       // 途中で出力モードが終わったら、残りは合成させずに打ち切る
       if (!output.play(chunk)) break;
