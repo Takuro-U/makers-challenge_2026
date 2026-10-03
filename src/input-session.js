@@ -2,12 +2,11 @@ import { HistoryBuffer } from './history-buffer.js';
 import { failStartup, requirePositiveInt } from './lib/env.js';
 import { matchLocalTerms } from './llm/local-filter.js';
 import { provider } from './llm/provider.js';
-import { buildRebuttalRequest } from './llm/request.js';
+import { buildRebuttalRequest, renderConversation } from './llm/request.js';
 import { RequestDebouncer } from './llm/request-debouncer.js';
-import { writeLlmRequest } from './llm/request-writer.js';
 import { parseRebuttalResult } from './llm/response.js';
-import { writeLlmResponse } from './llm/response-writer.js';
 import { speakRebuttal } from './rebuttal-output.js';
+import { createSessionLog } from './session-log.js';
 import { SttSession } from './stt/session.js';
 import { createTranscriptWriter } from './stt/transcript-writer.js';
 import { synthesize } from './tts/speech.js';
@@ -19,6 +18,8 @@ if (requestMaxWaitMs <= requestIdleMs) {
   failStartup('LLM_REQUEST_MAX_WAIT_MS は LLM_REQUEST_IDLE_MS より大きい値で指定してください');
 }
 
+const elapsedMs = (since) => Math.round(performance.now() - since);
+
 /**
  * 担当クライアントが開始してから停止するまでの、入力の処理 1 回分。
  * 受け取った音声を文字起こしセッションへ中継し、確定結果ごとに
@@ -26,54 +27,83 @@ if (requestMaxWaitMs <= requestIdleMs) {
  * フィルタに該当したら、後続の発言を待ってから LLM リクエストを発行する。
  * 反論ありの判定が返ったら、反論文を音声にして担当の端末で再生させる。
  * @param {object} opts
- * @param {string} opts.id 担当クライアントの接続 ID(ログと出力ファイル名に使う)
+ * 文字起こしとリクエストごとの動作レポートを、1 回分のログの置き場所に書き出す。
+ * @param {string} opts.id 担当クライアントの接続 ID
  * @param {(message: string) => void} opts.log
  * @param {{ begin(): boolean, play(audio: Buffer): void }} opts.output 出力モードへの切り替えと、担当の端末への音声の送信
  */
 export function createInputSession({ id, log, output }) {
-  const writer = createTranscriptWriter(id);
+  const sessionLog = createSessionLog();
+  const writer = createTranscriptWriter(sessionLog.dir);
   const history = new HistoryBuffer(historyBufferSize);
   let closed = false;
+  let reportCount = 0;
 
-  // リクエストを 1 回だけ送り、応答を解釈して書き出す。先行するリクエストの打ち切りは行わない
-  const requestRebuttal = async (triggers, request) => {
+  // リクエストを 1 回だけ送り、応答を解釈する。経過は動作レポートに書き込む。先行するリクエストの打ち切りは行わない
+  const requestRebuttal = async (request, report) => {
+    const sentAt = performance.now();
     let response;
     try {
       response = await provider.send(request);
     } catch (err) {
+      report.llm = { durationMs: elapsedMs(sentAt), error: err.message };
       log(`llm request の送信に失敗しました: ${err.message}`);
       return;
     }
+    report.llm = { durationMs: elapsedMs(sentAt) };
 
-    const record = { triggers, response };
+    let text;
+    let result;
     try {
-      record.result = parseRebuttalResult(provider.extractText(response));
-      log(record.result.decision === 'rebut'
-        ? `rebuttal: ${record.result.rebuttal}`
-        : `no rebuttal: ${record.result.reason}`);
+      text = provider.extractText(response);
+      result = parseRebuttalResult(text);
+      report.llm.result = result;
+      log(result.decision === 'rebut'
+        ? `rebuttal: ${result.rebuttal}`
+        : `no rebuttal: ${result.reason}`);
     } catch (err) {
-      record.error = err.message;
+      report.llm.error = err.message;
+      // 解釈できなかった応答は、原因を追えるよう生のテキストを残す
+      if (text !== undefined) report.llm.text = text;
       log(`llm response を解釈できません: ${err.message}`);
     }
-    writeLlmResponse(id, record)
-      .then((path) => log(`llm response -> ${path}`))
-      .catch((err) => log(`llm response の書き出しに失敗しました: ${err.message}`));
 
     // 応答を待つ間に停止されていたら、再生する相手がいないので合成しない
-    if (record.result?.decision !== 'rebut' || closed) return;
-    const spoken = await speakRebuttal({ text: record.result.rebuttal, synthesize, output, log });
+    if (result?.decision !== 'rebut' || closed) return;
+    report.tts = {};
+    const timedSynthesize = async (rebuttal) => {
+      const startedAt = performance.now();
+      try {
+        return await synthesize(rebuttal);
+      } catch (err) {
+        report.tts.error = err.message;
+        throw err;
+      } finally {
+        report.tts.durationMs = elapsedMs(startedAt);
+      }
+    };
+    const spoken = await speakRebuttal({ text: result.rebuttal, synthesize: timedSynthesize, output, log });
+    report.tts.played = spoken;
     // 反論で会話の流れが変わるため、保留中のトリガは発行せずに破棄する
     if (spoken) debouncer.cancel();
   };
 
   // 保留が明けた時点の履歴でリクエストを組み立てるため、トリガのあとに届いた発言も含まれる
-  const issueRequest = (pending) => {
-    const triggers = pending.map(({ entry, matchedTerms }) => ({ text: entry.text, matchedTerms }));
-    const request = buildRebuttalRequest(history, pending.map(({ entry }) => entry));
-    writeLlmRequest(id, { triggers, request })
-      .then((path) => log(`llm request -> ${path}`))
-      .catch((err) => log(`llm request の書き出しに失敗しました: ${err.message}`));
-    requestRebuttal(triggers, request);
+  const issueRequest = (pending, firedBy) => {
+    const entries = pending.map(({ entry }) => entry);
+    const report = {
+      id: ++reportCount,
+      requestedAt: new Date().toISOString(),
+      triggers: pending.map(({ entry, matchedTerms }) => ({ text: entry.text, matchedTerms })),
+      firedBy,
+      context: renderConversation(history, entries).split('\n'),
+    };
+    const request = buildRebuttalRequest(history, entries);
+    requestRebuttal(request, report).finally(() => {
+      sessionLog.writeReport(report)
+        .then((path) => log(`report -> ${path}`))
+        .catch((err) => log(`report の書き出しに失敗しました: ${err.message}`));
+    });
   };
 
   const debouncer = new RequestDebouncer({

@@ -9,7 +9,8 @@ export class RequestDebouncer {
    * @param {object} opts
    * @param {number} opts.idleMs 猶予(ミリ秒)
    * @param {number} opts.maxWaitMs 上限(ミリ秒)。最初のトリガから数える
-   * @param {(triggers: unknown[]) => void} opts.onFire 保留が明けたときに、保留中のトリガを到着順に受け取る
+   * @param {(triggers: unknown[], firedBy: 'idle' | 'max_wait') => void} opts.onFire
+   *   保留が明けたときに、保留中のトリガを到着順に受け取る。firedBy は猶予(idle)と上限(max_wait)のどちらで明けたか
    */
   constructor({ idleMs, maxWaitMs, onFire }) {
     this.idleMs = idleMs;
@@ -27,7 +28,7 @@ export class RequestDebouncer {
       this.pending.push(item);
     } else {
       this.pending = [item];
-      this.maxTimer = setTimeout(() => this.#fire(), this.maxWaitMs);
+      this.maxTimer = setTimeout(() => this.#fire('max_wait'), this.maxWaitMs);
     }
     if (!this.held) this.#restartIdleTimer();
   }
@@ -53,12 +54,12 @@ export class RequestDebouncer {
 
   #restartIdleTimer() {
     clearTimeout(this.idleTimer);
-    this.idleTimer = setTimeout(() => this.#fire(), this.idleMs);
+    this.idleTimer = setTimeout(() => this.#fire('idle'), this.idleMs);
   }
 
-  #fire() {
+  #fire(firedBy) {
     const triggers = this.pending;
     this.cancel();
-    this.onFire(triggers);
+    this.onFire(triggers, firedBy);
   }
 }

@@ -92,6 +92,18 @@ test('発話が途切れないままでも、上限が過ぎたら打ち切っ�
   assert.deepEqual(fired, [['a']]);
 });
 
+test('猶予と上限のどちらで発行したかを伝える', () => {
+  const reasons = [];
+  debouncer.onFire = (triggers, firedBy) => reasons.push(firedBy);
+
+  debouncer.trigger('a');
+  mock.timers.tick(IDLE_MS);
+  debouncer.trigger('b');
+  debouncer.hold();
+  mock.timers.tick(MAX_WAIT_MS);
+  assert.deepEqual(reasons, ['idle', 'max_wait']);
+});
+
 test('発行したあとのトリガは、新しい保留として上限を計り直す', () => {
   debouncer.trigger('a');
   mock.timers.tick(IDLE_MS);

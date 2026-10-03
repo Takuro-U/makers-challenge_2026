@@ -22,9 +22,13 @@ function readConfig(relativePath, parse = (text) => text) {
 const systemPrompt = readConfig('prompts/rebuttal-system.md');
 const responseSchema = readConfig('schemas/rebuttal-response.json', JSON.parse);
 
-// 会話履歴を 1 行 1 発言で並べ、トリガ発言を <trigger> で囲む
-function renderConversation(entries, triggers) {
-  const lines = entries.map((entry) => {
+/**
+ * LLM に渡す文脈。直近の会話履歴を 1 行 1 発言で並べ、トリガ発言を <trigger> で囲む。
+ * @param {import('../history-buffer.js').HistoryBuffer} history
+ * @param {Array<{ timestamp: Date, text: string }>} triggers
+ */
+export function renderConversation(history, triggers) {
+  const lines = history.recent(contextSize).map((entry) => {
     const line = `[${entry.timestamp.toISOString()}] ${entry.text}`;
     return triggers.includes(entry) ? `<trigger>${line}</trigger>` : line;
   });
@@ -40,7 +44,7 @@ function renderConversation(entries, triggers) {
 export function buildRebuttalRequest(history, triggers) {
   return provider.buildRequest({
     system: systemPrompt,
-    conversation: renderConversation(history.recent(contextSize), triggers),
+    conversation: renderConversation(history, triggers),
     schema: responseSchema,
   });
 }

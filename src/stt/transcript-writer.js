@@ -1,16 +1,13 @@
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream } from 'node:fs';
 import { join } from 'node:path';
-
-const TRANSCRIPTS_DIR = join(import.meta.dirname, '..', '..', 'storage', 'transcripts');
 
 /**
  * 確定結果を 1 件 1 行のテキストで書き出す(動作確認用)。
- * WebSocket の接続 1 回につき 1 ファイル。
+ * 入力の処理 1 回につき 1 ファイル。
+ * @param {string} dir 入力の処理 1 回分のログの置き場所
  */
-export function createTranscriptWriter(connectionId) {
-  mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
-  const startedAt = new Date().toISOString().replace(/[:.]/g, '-');
-  const path = join(TRANSCRIPTS_DIR, `${startedAt}_${connectionId}.txt`);
+export function createTranscriptWriter(dir) {
+  const path = join(dir, 'transcript.txt');
   const out = createWriteStream(path, { flags: 'a' });
 
   return {
