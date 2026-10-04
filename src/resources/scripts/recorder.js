@@ -10,6 +10,7 @@ const stopButton = document.getElementById('stop');
 const statusText = document.getElementById('status');
 const previewButton = document.getElementById('preview');
 const previewExitButton = document.getElementById('preview-exit');
+const stageArea = document.getElementById('stage');
 const avatarCanvas = document.getElementById('avatar');
 const fullscreenButton = document.getElementById('fullscreen');
 
@@ -96,16 +97,22 @@ async function loadAvatar() {
   render();
 }
 
+// 担当の間とプレビューの間は、画面いっぱいを 3D モデル用に空け、操作用の表示を画面の下の外へ逃がす。
 // 3D モデルは、この端末が担当で出力モードの間と、プレビューの間だけ表示する。
-// 表示している間は操作用の表示を隠し、モデルだけを画面いっぱいに出す(読み込めていなければ、通常の画面のまま)
+// 表示している間は操作用の表示を隠し、モデルだけにする(読み込めていなければ、操作用の表示は隠さない)
 function updateAvatar() {
-  const speaking = Boolean(state?.owner && state.mode === 'output');
-  const staged = Boolean(avatar) && (previewing || speaking);
-  if (staged && !document.body.classList.contains('stage')) window.scrollTo(0, 0);
-  document.body.classList.toggle('stage', staged);
+  const owner = Boolean(state?.owner);
+  const speaking = owner && state.mode === 'output';
+  const modelShown = Boolean(avatar) && (previewing || speaking);
+  const stageShown = owner || modelShown;
+  // モデル用の領域が現れるときと、モデルを出すときは、その領域が見える位置まで戻す
+  if ((stageShown && stageArea.hidden) || (modelShown && avatarCanvas.hidden)) window.scrollTo(0, 0);
+  stageArea.hidden = !stageShown;
+  document.body.classList.toggle('has-stage', stageShown);
+  document.body.classList.toggle('stage-only', modelShown);
   // プレビューの終了ボタンはモデルの下(画面の外)に置く。読み上げ中は出さず、モデルだけにする
-  previewExitButton.hidden = !staged || speaking;
-  if (staged) avatar.show();
+  previewExitButton.hidden = !modelShown || speaking;
+  if (modelShown) avatar.show();
   else avatar?.hide();
 }
 

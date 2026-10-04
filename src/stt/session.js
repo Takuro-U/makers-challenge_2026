@@ -20,6 +20,9 @@ const audioIdleMs = requirePositiveInt('STT_AUDIO_IDLE_MS');
 const pendingMaxBytes = Math.floor(SAMPLE_RATE * 2 * requirePositiveInt('STT_PENDING_AUDIO_MS') / 1000);
 // 発話の区切り(意味の切れ目で判定)で、言いかけの続きをどれだけ待つか
 const turnEagerness = requireOneOf('STT_TURN_EAGERNESS', ['low', 'medium', 'high', 'auto']);
+// 発話が区切られないまま続いたときに、強制的に区切るまでの時間。
+// 確定結果が届かないと一次フィルタに掛けられないため、話し続けても反論が遅れすぎないようにする
+const maxTurnMs = requirePositiveInt('STT_MAX_TURN_MS');
 
 const model = requireEnv('STT_MODEL');
 const language = process.env.STT_LANGUAGE ?? 'ja';
@@ -28,6 +31,7 @@ const language = process.env.STT_LANGUAGE ?? 'ja';
  * 1 本の WebSocket 接続(ブラウザ側)に対応する文字起こしセッション。
  * 内部で OpenAI Realtime API の文字起こしセッションを張り、上限到達やエラー時に自動で張り替える。
  * 発話の区切りはサーバ側に任せて意味の切れ目で判定させ、区切りごとの確定結果を onFinal で返す。
+ * 区切られないまま発話が続いた場合は、一定時間ごとにこちらから区切る。
  */
 export class SttSession {
   /**
@@ -49,6 +53,9 @@ export class SttSession {
     this.speaking = false;
     this.rotateDue = false;
     this.rotateTimer = null;
+    // 進行中の発話について、サーバが発話の開始時に知らせた項目(強制的に区切ると、この項目では確定しないことがある)
+    this.speakingItemId = null;
+    this.cutTimer = null;
     this.retryTimer = null;
     this.retryDelay = retryBaseMs;
     this.pending = [];
@@ -74,7 +81,18 @@ export class SttSession {
     this.closed = true;
     clearTimeout(this.rotateTimer);
     clearTimeout(this.retryTimer);
+    clearTimeout(this.cutTimer);
     this.#detachCurrent()?.close();
+  }
+
+  // 発話が続いたまま上限の時間に達した。ここまでの音声をこちらから確定させ、続きはまた上限まで待つ
+  #cutTurn(socket) {
+    if (socket !== this.socket || !this.speaking || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+    // 区切った分がどの項目として確定するかは、確定の通知(committed)で受け取る
+    this.openItems.delete(this.speakingItemId);
+    this.speakingItemId = null;
+    this.cutTimer = setTimeout(() => this.#cutTurn(socket), maxTurnMs);
   }
 
   #append(socket, chunk) {
@@ -170,15 +188,29 @@ export class SttSession {
         this.retryDelay = retryBaseMs;
         break;
       case 'input_audio_buffer.speech_started':
-        if (socket === this.socket) this.speaking = true;
+        if (socket === this.socket) {
+          this.speaking = true;
+          this.speakingItemId = event.item_id;
+          clearTimeout(this.cutTimer);
+          this.cutTimer = setTimeout(() => this.#cutTurn(socket), maxTurnMs);
+        }
         this.openItems.set(event.item_id, socket);
         this.onSpeechStart();
         break;
       case 'input_audio_buffer.speech_stopped':
         if (socket === this.socket) {
           this.speaking = false;
+          this.speakingItemId = null;
+          clearTimeout(this.cutTimer);
+          // 強制的に区切った直後に発話が終わると、確定を待つ項目が残っていないことがある
+          if (this.openItems.size === 0 && !this.closed) this.onSettled();
           if (this.rotateDue) this.#rotate();
         }
+        break;
+      // 音声が確定した(サーバによる区切りと、こちらからの強制的な区切りの両方で届く)。
+      // 発話の開始で知らされていない項目でも、確定結果を待つ対象に加える
+      case 'input_audio_buffer.committed':
+        this.openItems.set(event.item_id, socket);
         break;
       case 'conversation.item.input_audio_transcription.completed': {
         const text = event.transcript?.trim();
@@ -196,10 +228,11 @@ export class SttSession {
     }
   }
 
-  // 発話の確定結果が届いた(または届かないと決まった)。待っている発話がなくなれば通知する
+  // 発話の確定結果が届いた(または届かないと決まった)。待っている発話がなくなれば通知する。
+  // 強制的に区切った分の確定結果が届いても、発話がまだ続いている間は通知しない
   #closeItem(itemId) {
     this.openItems.delete(itemId);
-    if (this.openItems.size === 0 && !this.closed) this.onSettled();
+    if (this.openItems.size === 0 && !this.speaking && !this.closed) this.onSettled();
   }
 
   // 張り替え時刻に達したら、発話中でなければすぐに、発話中なら発話の終わりで張り替える
