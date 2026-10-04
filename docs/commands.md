@@ -87,7 +87,9 @@ cat "$(ls -dt storage/logs/*/ | head -1)"report-1.json       # 最新の入力�
 
 `HARDWARE_CONTROL` で実機を動かすかどうかを切り替える。`on` なら起動時に I2C と GPIO を初期化し(`src/hardware/device.js`)、できなければ起動を中止する。`off` なら実機に触れず、何もせずに通過する(実機のない開発環境・コンテナ向け)。
 
-サーボを戻す操作と一連の動作確認は、コマンドで直接実行する。
+出力モードが終わると(再生の終了、`OUTPUT_TIMEOUT_MS` による打ち切り、停止、担当の切断のいずれでも)、`src/hardware/reset.js` の `reset()` を呼んでサーボを開始位置に戻す。戻し終わるのは待たずに入力モードへ戻り、失敗した場合は理由をサーバのログに出す。
+
+サーボを手動で戻す操作と一連の動作確認は、コマンドで直接実行する。
 
 ```bash
 node --env-file=.env src/hardware/reset.js     # サーボを開始位置に戻す

@@ -37,12 +37,16 @@ class FakeSocket extends EventEmitter {
 }
 
 let sessions;
+// 出力モードが終わったと知らされた回数
+let outputEnds;
 let handleConnection;
 
 beforeEach(() => {
   sessions = [];
+  outputEnds = 0;
   handleConnection = createConnectionHandler({
     outputTimeoutMs: 60000,
+    onOutputEnd: () => { outputEnds += 1; },
     createSession: ({ output }) => {
       const session = {
         written: [],
@@ -176,6 +180,34 @@ test('出力モードの間は音声を捨て、担当が再生の終了を報�
   alice.receive({ type: 'playback_ended' });
   assert.deepEqual(alice.sent.at(-1), mode('input', true));
   assert.equal(sessions.length, 1);
+});
+
+test('出力モードが終わったら、そのたびに 1 回知らせる', () => {
+  const alice = connect();
+  alice.receive({ type: 'start' });
+  assert.equal(outputEnds, 0);
+
+  sessions[0].output.begin();
+  assert.equal(outputEnds, 0);
+  alice.receive({ type: 'playback_ended' });
+  assert.equal(outputEnds, 1);
+
+  alice.receive({ type: 'stop' });
+  assert.equal(outputEnds, 1);
+});
+
+test('出力モードの途中で担当が停止・切断した場合も、出力モードの終わりを知らせる', () => {
+  const alice = connect();
+  alice.receive({ type: 'start' });
+  sessions[0].output.begin();
+  alice.receive({ type: 'stop' });
+  assert.equal(outputEnds, 1);
+
+  const bob = connect();
+  bob.receive({ type: 'start' });
+  sessions[1].output.begin();
+  bob.disconnect();
+  assert.equal(outputEnds, 2);
 });
 
 test('出力モードでは、再生する音声を担当にだけバイナリで送る', () => {

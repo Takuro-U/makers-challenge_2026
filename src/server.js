@@ -4,6 +4,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer } from 'ws';
 import { createConnectionHandler } from './connection.js';
 import { initDevice } from './hardware/device.js';
+import { reset } from './hardware/reset.js';
 import { createInputSession } from './input-session.js';
 import { WS_PATH } from './lib/constants.js';
 import { failStartup, requirePositiveInt } from './lib/env.js';
@@ -51,6 +52,11 @@ startHeartbeat(wss);
 wss.on('connection', createConnectionHandler({
   createSession: createInputSession,
   outputTimeoutMs,
+  // 反論の再生開始で動かしたサーボを、出力モードが終わったら開始位置に戻す。
+  // 戻し終わるのは待たず、失敗しても動作は続ける(戻せないままだと、次の反論ではサーボが動かない)
+  onOutputEnd: () => {
+    reset().catch((err) => console.error(`サーボを開始位置に戻せません: ${err.message}`));
+  },
 }));
 
 server.listen(port, () => {

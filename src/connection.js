@@ -21,8 +21,10 @@ import { ModeController } from './mode-controller.js';
  *   output.begin() は出力モードへ切り替え(切り替えられなければ false)、output.play() は担当の端末に音声を送り(送れなければ false)、
  *   output.end() は音声を送り終えたことを知らせる
  * @param {number} opts.outputTimeoutMs 再生終了の報告が届かない場合に、出力モードを打ち切るまでの時間
+ * @param {() => void} [opts.onOutputEnd]
+ *   出力モードが終わったとき(再生の終了、打ち切り、停止、担当の切断のいずれでも)に呼ぶ
  */
-export function createConnectionHandler({ createSession, outputTimeoutMs }) {
+export function createConnectionHandler({ createSession, outputTimeoutMs, onOutputEnd = () => {} }) {
   // 接続中のクライアント(ws → { id, log })
   const clients = new Map();
   let session = null;
@@ -56,9 +58,12 @@ export function createConnectionHandler({ createSession, outputTimeoutMs }) {
     return output;
   };
 
+  let lastMode = 'standby';
   const controller = new ModeController({
     outputTimeoutMs,
     onChange: () => {
+      const outputEnded = lastMode === 'output';
+      lastMode = controller.mode;
       if (controller.mode === 'standby') {
         session?.close();
         session = null;
@@ -69,6 +74,7 @@ export function createConnectionHandler({ createSession, outputTimeoutMs }) {
         session = createSession({ id, log, output: currentOutput });
       }
       for (const ws of clients.keys()) sendMode(ws);
+      if (outputEnded) onOutputEnd();
     },
   });
 
