@@ -12,7 +12,7 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const MODEL_URL = '/models/speak.glb';
+const MODEL_URL = '/models/dance.glb';
 // 描画解像度の上限(CSS ピクセルに対する倍率)。画素密度の高い端末での負荷を抑える
 const MAX_PIXEL_RATIO = 2;
 // カメラの縦方向の画角(度)

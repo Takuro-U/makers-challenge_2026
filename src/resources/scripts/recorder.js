@@ -25,6 +25,8 @@ let state = null;
 let starting = false;
 let errorMessage = '';
 let audioContext = null;
+// 反論の再生専用の AudioContext。届く音声と同じサンプリングレートで作り、断片ごとの変換をなくして継ぎ目のずれを防ぐ
+let playbackContext = null;
 let mediaStream = null;
 // 再生中の反論 { sources: 再生待ち・再生中の音声, nextTime: 次の音声を鳴らし始める時刻, ended: サーバが送り終えたか }
 let playback = null;
@@ -37,28 +39,42 @@ let avatarFailed = false;
 // プレビューのボタンで 3D モデルを表示している間は true
 let previewing = false;
 
+// 切り分け用。URL に ?avatar=off を付けて開くと、3D モデルを読み込まず、表示もしない
+const avatarDisabled = new URLSearchParams(location.search).get('avatar') === 'off';
+
 // 最初の音声を鳴らし始めるまでの余裕(秒)。届く間隔が揺らいでも、続きが届く前に途切れないようにする
 const PLAYBACK_LEAD_SEC = 0.3;
 
 function describeStatus() {
   if (errorMessage) return `エラー: ${errorMessage}`;
   if (!state) return 'サーバに接続しています';
-  if (state.mode === 'standby') return '「開始」を押した端末がマイクを担当します';
+  if (state.mode === 'standby') {
+    return isAvatarLoading()
+      ? '3D モデルを読み込んでいます。読み込みが終わると開始できます'
+      : '「開始」を押した端末がマイクを担当します';
+  }
   return state.owner ? 'この端末がマイクを担当しています' : '別の端末がマイクを担当しています';
 }
 
-// 表示とボタンの状態は、サーバから受け取った状態だけで決める
+// 3D モデルの読み込みが、成功も失敗もせずに続いている間は true
+function isAvatarLoading() {
+  return !avatarDisabled && !avatar && !avatarFailed;
+}
+
+// 表示とボタンの状態は、サーバから受け取った状態と 3D モデルの読み込みの状況で決める
 function render() {
   modeText.textContent = state ? MODE_LABELS[state.mode] : '未接続';
   statusText.textContent = describeStatus();
-  startButton.disabled = starting || state?.mode !== 'standby';
+  // 最初の反論から 3D モデルを表示できるよう、読み込みが終わるまでは開始させない(読み込めなかった場合は表示なしで開始できる)
+  startButton.disabled = starting || state?.mode !== 'standby' || isAvatarLoading();
   stopButton.disabled = !state?.owner;
-  previewButton.disabled = avatarFailed;
+  previewButton.disabled = avatarDisabled || avatarFailed;
   previewButton.textContent = describePreview();
   updateAvatar();
 }
 
 function describePreview() {
+  if (avatarDisabled) return 'モデルは無効です(?avatar=off)';
   if (avatarFailed) return 'モデルを読み込めません';
   if (!previewing) return 'モデルをプレビュー';
   return avatar ? 'プレビューを終了' : 'モデルを読み込んでいます';
@@ -141,6 +157,8 @@ async function startCapture() {
 
   // サンプリングレートの変換は Worklet 側で行う(ブラウザ既定のレートのまま取り込む)
   audioContext = new AudioContext();
+  // 「開始」の操作をきっかけに作るため、自動再生の制限に掛からない
+  playbackContext = new AudioContext({ sampleRate: config.speechSampleRate });
   await audioContext.audioWorklet.addModule('/scripts/pcm-worklet.js');
   const source = audioContext.createMediaStreamSource(mediaStream);
   // 出力を持たないノードにして、destination に繋がなくても処理されるようにする
@@ -176,31 +194,30 @@ function finishPlaybackIfDone() {
 }
 
 // 反論の音声(16bit PCM・モノラル)を、届いた順に途切れなく続けて再生する。
-// 「開始」の操作で動き出したマイク用の AudioContext で再生するため、自動再生の制限に掛からない
+// 再生専用の AudioContext で鳴らす
 function playRebuttalChunk(data) {
   // 出力モードが終わったあとに届いた分や、再生に失敗したあとの残りは捨てる
   if (!state?.owner || state.mode !== 'output' || playbackFailed) return;
   try {
-    if (!audioContext) throw new Error('マイクを担当していません');
+    if (!playbackContext) throw new Error('マイクを担当していません');
     const samples = new Int16Array(data);
-    // サンプリングレートの変換は AudioContext に任せる
-    const buffer = audioContext.createBuffer(1, samples.length, config.speechSampleRate);
+    const buffer = playbackContext.createBuffer(1, samples.length, config.speechSampleRate);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) channel[i] = samples[i] / 0x8000;
 
     const current = playback ??= { sources: new Set(), nextTime: 0, ended: false };
-    const source = audioContext.createBufferSource();
+    const source = playbackContext.createBufferSource();
     source.buffer = buffer;
-    source.connect(audioContext.destination);
+    source.connect(playbackContext.destination);
     source.onended = () => {
       current.sources.delete(source);
       if (current === playback) finishPlaybackIfDone();
     };
     // 予約済みの音声が残っていれば、その終わりに続けて鳴らす(残りが少なくても間を空けない)。
     // 尽きていたら、少し先から鳴らし直す
-    const startAt = current.nextTime > audioContext.currentTime
+    const startAt = current.nextTime > playbackContext.currentTime
       ? current.nextTime
-      : audioContext.currentTime + PLAYBACK_LEAD_SEC;
+      : playbackContext.currentTime + PLAYBACK_LEAD_SEC;
     source.start(startAt);
     current.nextTime = startAt + buffer.duration;
     current.sources.add(source);
@@ -229,6 +246,8 @@ function stopCapture() {
   mediaStream = null;
   audioContext?.close();
   audioContext = null;
+  playbackContext?.close();
+  playbackContext = null;
 }
 
 // マイクを取得できてから担当を申し出る。担当になれたかどうかはサーバからのモードの通知で分かる
@@ -256,7 +275,7 @@ function stop() {
 // 設定値を受け取ってから接続を始める
 async function init() {
   render();
-  loadAvatar();
+  if (!avatarDisabled) loadAvatar();
   try {
     const response = await fetch('/config.json');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
