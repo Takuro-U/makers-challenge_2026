@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join, normalize, sep } from 'node:path';
 import { SAMPLE_RATE, SPEECH_SAMPLE_RATE, WS_PATH } from '../lib/constants.js';
 import { requirePositiveInt } from '../lib/env.js';
@@ -57,9 +57,21 @@ export async function serveStatic(req, res) {
     return;
   }
   try {
-    const body = await readFile(file);
+    const { size, mtimeMs } = await stat(file);
     const ext = file.slice(file.lastIndexOf('.'));
-    res.writeHead(200, { 'Content-Type': CONTENT_TYPES[ext] ?? 'application/octet-stream' });
+    const headers = {
+      'Content-Type': CONTENT_TYPES[ext] ?? 'application/octet-stream',
+      // ファイルの大きさと更新日時から作る版の印。ブラウザには毎回これで確認させ、
+      // 保存済みの内容と同じなら本文を送らない(3D モデルのような大きなファイルの再取得を省く)
+      ETag: `"${size}-${Math.round(mtimeMs)}"`,
+      'Cache-Control': 'no-cache',
+    };
+    if (req.headers?.['if-none-match'] === headers.ETag) {
+      res.writeHead(304, headers).end();
+      return;
+    }
+    const body = await readFile(file);
+    res.writeHead(200, headers);
     res.end(body);
   } catch {
     res.writeHead(404).end();

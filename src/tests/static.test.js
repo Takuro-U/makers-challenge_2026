@@ -28,9 +28,9 @@ function fakeResponse() {
   };
 }
 
-async function get(url) {
+async function get(url, headers = {}) {
   const res = fakeResponse();
-  await serveStatic({ method: 'GET', url }, res);
+  await serveStatic({ method: 'GET', url, headers }, res);
   return res;
 }
 
@@ -57,6 +57,20 @@ test('ページのスクリプトを返す', async () => {
   const res = await get('/scripts/avatar.js');
   assert.equal(res.status, 200);
   assert.equal(res.headers['Content-Type'], 'text/javascript; charset=utf-8');
+});
+
+test('ブラウザが保存済みの内容と同じなら、本文を送らずに 304 を返す', async () => {
+  const first = await get('/scripts/avatar.js');
+  assert.equal(first.headers['Cache-Control'], 'no-cache');
+  assert.ok(first.headers.ETag);
+
+  const same = await get('/scripts/avatar.js', { 'if-none-match': first.headers.ETag });
+  assert.equal(same.status, 304);
+  assert.equal(same.body, undefined);
+
+  const stale = await get('/scripts/avatar.js', { 'if-none-match': '"old"' });
+  assert.equal(stale.status, 200);
+  assert.ok(stale.body.length > 0);
 });
 
 test('3D 表示のライブラリのうち、ブラウザが使う部分を返す', async () => {

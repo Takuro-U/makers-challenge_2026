@@ -32,15 +32,13 @@ let playback = null;
 let playbackFailed = false;
 // 出力モードの間に表示する 3D モデル。読み込みが済むまで、または読み込めなかった場合は null
 let avatar = null;
-// 3D モデルの読み込みを始めたら true(ページを開いている間に 1 回だけ読み込む)
-let avatarRequested = false;
 // 3D モデルを読み込めなかったら true
 let avatarFailed = false;
 // プレビューのボタンで 3D モデルを表示している間は true
 let previewing = false;
 
-// 最初の音声を鳴らし始めるまでの余裕(秒)。続きが届く前に途切れるのを防ぐ
-const PLAYBACK_LEAD_SEC = 0.15;
+// 最初の音声を鳴らし始めるまでの余裕(秒)。届く間隔が揺らいでも、続きが届く前に途切れないようにする
+const PLAYBACK_LEAD_SEC = 0.3;
 
 function describeStatus() {
   if (errorMessage) return `エラー: ${errorMessage}`;
@@ -66,9 +64,9 @@ function describePreview() {
   return avatar ? 'プレビューを終了' : 'モデルを読み込んでいます';
 }
 
-// 3D モデルは、担当になった端末とプレビューする端末だけが読み込む。読み込めなくても、表示なしのまま他の機能は動かす
+// 3D モデルは、最初の反論に間に合うよう、ページを開いた時点で読み込む(ページを開いている間に 1 回だけ)。
+// 読み込めなくても、表示なしのまま他の機能は動かす
 async function loadAvatar() {
-  avatarRequested = true;
   try {
     const { createAvatar } = await import('/scripts/avatar.js');
     avatar = await createAvatar(avatarCanvas);
@@ -82,7 +80,6 @@ async function loadAvatar() {
 
 // 3D モデルは、この端末が担当で出力モードの間と、プレビューの間だけ表示する
 function updateAvatar() {
-  if ((state?.owner || previewing) && !avatarRequested) loadAvatar();
   if (previewing || (state?.owner && state.mode === 'output')) avatar?.show();
   else avatar?.hide();
 }
@@ -199,8 +196,11 @@ function playRebuttalChunk(data) {
       current.sources.delete(source);
       if (current === playback) finishPlaybackIfDone();
     };
-    // 前の音声の終わりに続けて鳴らす。予約が尽きていたら、少し先から鳴らし直す
-    const startAt = Math.max(current.nextTime, audioContext.currentTime + PLAYBACK_LEAD_SEC);
+    // 予約済みの音声が残っていれば、その終わりに続けて鳴らす(残りが少なくても間を空けない)。
+    // 尽きていたら、少し先から鳴らし直す
+    const startAt = current.nextTime > audioContext.currentTime
+      ? current.nextTime
+      : audioContext.currentTime + PLAYBACK_LEAD_SEC;
     source.start(startAt);
     current.nextTime = startAt + buffer.duration;
     current.sources.add(source);
@@ -256,6 +256,7 @@ function stop() {
 // 設定値を受け取ってから接続を始める
 async function init() {
   render();
+  loadAvatar();
   try {
     const response = await fetch('/config.json');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
