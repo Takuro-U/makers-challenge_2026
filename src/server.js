@@ -1,4 +1,6 @@
-import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { WebSocketServer } from 'ws';
 import { createConnectionHandler } from './connection.js';
 import { initDevice } from './hardware/device.js';
@@ -19,7 +21,30 @@ try {
   failStartup(`ハードウェア制御を初期化できません: ${err.message}`);
 }
 
-const server = createServer(serveStatic);
+// 証明書と鍵が指定されていれば HTTPS で、どちらも未指定なら HTTP で待ち受ける。
+// 別の端末のブラウザは HTTPS のページでしかマイクを使わせないため、スマートフォンから使うときは HTTPS にする
+function loadTlsOptions() {
+  const keyFile = process.env.HTTPS_KEY_FILE;
+  const certFile = process.env.HTTPS_CERT_FILE;
+  if (!keyFile && !certFile) return null;
+  if (!keyFile || !certFile) {
+    failStartup('HTTPS_KEY_FILE と HTTPS_CERT_FILE は、両方を指定するか、両方を空にしてください');
+  }
+  try {
+    return { key: readFileSync(keyFile), cert: readFileSync(certFile) };
+  } catch (err) {
+    failStartup(`HTTPS の証明書または鍵を読み込めません: ${err.message}`);
+  }
+}
+
+const tlsOptions = loadTlsOptions();
+const scheme = tlsOptions ? 'https' : 'http';
+let server;
+try {
+  server = tlsOptions ? createHttpsServer(tlsOptions, serveStatic) : createHttpServer(serveStatic);
+} catch (err) {
+  failStartup(`HTTPS の証明書または鍵が正しくありません: ${err.message}`);
+}
 
 const wss = new WebSocketServer({ server, path: WS_PATH });
 startHeartbeat(wss);
@@ -29,5 +54,5 @@ wss.on('connection', createConnectionHandler({
 }));
 
 server.listen(port, () => {
-  console.log(`backend listening on :${port}`);
+  console.log(`backend listening on :${port} (${scheme})`);
 });

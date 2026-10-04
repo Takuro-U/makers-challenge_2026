@@ -102,6 +102,19 @@ node --env-file=.env src/hardware/test-all.js  # 反応とリセットを 3 回�
 
 描画には three.js を使い、`node_modules/three` からサーバが配信する(`/vendor/three/`)。モデルは `/models/` で配信する。
 
+## スマートフォンからの接続(HTTPS)
+
+サーバと別の端末のブラウザは、HTTPS のページでしかマイクを使わせない。スマートフォンから「開始」を使うときは、自己署名の証明書を作って HTTPS で待ち受ける(デモ用の方法。サーバと同じマシンのブラウザで `http://localhost:3000/` を開く場合は不要)。
+
+```bash
+mkdir -p secrets
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 -keyout secrets/server.key -out secrets/server.crt -subj "/CN=makers-challenge"
+```
+
+`.env` に `HTTPS_KEY_FILE=secrets/server.key` と `HTTPS_CERT_FILE=secrets/server.crt` を書いてサーバを再起動する。起動時のログが `(https)` になる。両方を空にすると HTTP に戻る。
+
+スマートフォンでは `https://<サーバの IP アドレス>:3000/` を開く。初回は証明書の警告が出るので、「詳細設定」から「アクセスする」を選ぶ。HTTPS で待ち受けている間は、サーバと同じマシンからも `https://localhost:3000/` で開く(`curl` は `-k` を付ける)。
+
 ## テスト
 
 ```bash
