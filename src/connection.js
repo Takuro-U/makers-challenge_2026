@@ -8,6 +8,7 @@ import { ModeController } from './mode-controller.js';
  * クライアント → サーバ
  * - テキスト `{"type":"start"}` / `{"type":"stop"}`: 担当の開始・停止
  * - テキスト `{"type":"playback_ended"}`: 反論の再生が終わった
+ * - テキスト `{"type":"reset_servo"}`: サーボを開始位置に戻す(担当かどうか、モードが何かに関係なく受け付ける)
  * - バイナリ: 音声(入力モードの担当から届いたものだけを受け付ける)
  *
  * サーバ → クライアント
@@ -23,8 +24,14 @@ import { ModeController } from './mode-controller.js';
  * @param {number} opts.outputTimeoutMs 再生終了の報告が届かない場合に、出力モードを打ち切るまでの時間
  * @param {() => void} [opts.onOutputEnd]
  *   出力モードが終わったとき(再生の終了、打ち切り、停止、担当の切断のいずれでも)に呼ぶ
+ * @param {() => void} [opts.onServoReset] クライアントがサーボを開始位置に戻すよう求めたときに呼ぶ
  */
-export function createConnectionHandler({ createSession, outputTimeoutMs, onOutputEnd = () => {} }) {
+export function createConnectionHandler({
+  createSession,
+  outputTimeoutMs,
+  onOutputEnd = () => {},
+  onServoReset = () => {},
+}) {
   // 接続中のクライアント(ws → { id, log })
   const clients = new Map();
   let session = null;
@@ -89,6 +96,10 @@ export function createConnectionHandler({ createSession, outputTimeoutMs, onOutp
         break;
       case 'playback_ended':
         controller.endOutput(ws);
+        break;
+      case 'reset_servo':
+        clients.get(ws).log('servo reset requested');
+        onServoReset();
         break;
     }
   };

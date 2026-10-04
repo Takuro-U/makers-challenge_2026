@@ -39,14 +39,18 @@ class FakeSocket extends EventEmitter {
 let sessions;
 // 出力モードが終わったと知らされた回数
 let outputEnds;
+// サーボを戻すよう求められた回数
+let servoResets;
 let handleConnection;
 
 beforeEach(() => {
   sessions = [];
   outputEnds = 0;
+  servoResets = 0;
   handleConnection = createConnectionHandler({
     outputTimeoutMs: 60000,
     onOutputEnd: () => { outputEnds += 1; },
+    onServoReset: () => { servoResets += 1; },
     createSession: ({ output }) => {
       const session = {
         written: [],
@@ -266,6 +270,19 @@ test('停止した入力の処理は、あとで始まった別の入力を出�
   staleOutput.play(Buffer.from([7, 7, 7]));
   assert.deepEqual(bob.sent.at(-1), mode('input', true));
   assert.deepEqual(bob.audio, []);
+});
+
+test('サーボを戻す操作は、担当かどうかやモードに関係なく受け付ける', () => {
+  const alice = connect();
+  const bob = connect();
+  bob.receive({ type: 'reset_servo' });
+  assert.equal(servoResets, 1);
+
+  alice.receive({ type: 'start' });
+  bob.receive({ type: 'reset_servo' });
+  alice.receive({ type: 'reset_servo' });
+  assert.equal(servoResets, 3);
+  assert.deepEqual(alice.sent.at(-1), mode('input', true));
 });
 
 test('読めないメッセージや未知のメッセージは無視する', () => {

@@ -47,16 +47,20 @@ try {
   failStartup(`HTTPS の証明書または鍵が正しくありません: ${err.message}`);
 }
 
+// サーボを開始位置に戻す。戻し終わるのは待たず、失敗しても動作は続ける(戻せないままだと、次の反論ではサーボが動かない)
+const resetServo = () => {
+  reset().catch((err) => console.error(`サーボを開始位置に戻せません: ${err.message}`));
+};
+
 const wss = new WebSocketServer({ server, path: WS_PATH });
 startHeartbeat(wss);
 wss.on('connection', createConnectionHandler({
   createSession: createInputSession,
   outputTimeoutMs,
-  // 反論の再生開始で動かしたサーボを、出力モードが終わったら開始位置に戻す。
-  // 戻し終わるのは待たず、失敗しても動作は続ける(戻せないままだと、次の反論ではサーボが動かない)
-  onOutputEnd: () => {
-    reset().catch((err) => console.error(`サーボを開始位置に戻せません: ${err.message}`));
-  },
+  // 反論の再生開始で動かしたサーボを、出力モードが終わったら開始位置に戻す
+  onOutputEnd: resetServo,
+  // ページの「サーボをリセット」ボタンからの手動の操作
+  onServoReset: resetServo,
 }));
 
 server.listen(port, () => {

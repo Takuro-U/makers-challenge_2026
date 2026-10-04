@@ -13,6 +13,7 @@ const previewExitButton = document.getElementById('preview-exit');
 const stageArea = document.getElementById('stage');
 const avatarCanvas = document.getElementById('avatar');
 const fullscreenButton = document.getElementById('fullscreen');
+const servoResetButton = document.getElementById('servo-reset');
 
 // サーバが /config.json で配る設定値
 // wsPath: WebSocket の接続先のパス
@@ -71,6 +72,8 @@ function render() {
   // 最初の反論から 3D モデルを表示できるよう、読み込みが終わるまでは開始させない(読み込めなかった場合は表示なしで開始できる)
   startButton.disabled = starting || state?.mode !== 'standby' || isAvatarLoading();
   stopButton.disabled = !state?.owner;
+  // サーボを戻す操作は、サーバにつながっていれば担当やモードに関係なくできる
+  servoResetButton.disabled = !state;
   previewButton.disabled = avatarDisabled || avatarFailed;
   previewButton.textContent = describePreview();
   updateAvatar();
@@ -324,6 +327,9 @@ stopButton.addEventListener('click', stop);
 previewButton.addEventListener('click', togglePreview);
 previewExitButton.addEventListener('click', togglePreview);
 fullscreenButton.addEventListener('click', toggleFullscreen);
+servoResetButton.addEventListener('click', () => {
+  if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'reset_servo' }));
+});
 document.addEventListener('fullscreenchange', renderFullscreenButton);
 // 全画面表示に対応しているブラウザでだけボタンを出す
 fullscreenButton.hidden = !document.fullscreenEnabled;
