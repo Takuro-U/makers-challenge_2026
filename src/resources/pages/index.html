@@ -5,7 +5,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>地元擁護反論デバイス</title>
   <style>
-    #avatar { width: 100%; max-width: 480px; aspect-ratio: 3 / 4; }
+    /* ブラウザ標準の部品(スクロールバーなど)も暗い配色にする */
+    :root { color-scheme: dark; }
+    body { background: #000; color: #fff; }
+    button {
+      padding: 0.5em 1em;
+      border: 1px solid #555;
+      border-radius: 6px;
+      background: #222;
+      color: #fff;
+      font: inherit;
+    }
+    button:active:not(:disabled) { background: #444; }
+    button:disabled { border-color: #333; background: #111; color: #666; }
+
+    /* 3D モデルを表示している間(body.stage)は、操作用の表示を隠し、モデルだけを画面いっぱいに出す */
+    body.stage { margin: 0; }
+    body.stage #controls { display: none; }
+    #avatar:not([hidden]) { display: block; width: 100%; height: 100vh; height: 100dvh; }
+    /* プレビューの終了ボタンは画面の下の外に置き、スクロールして押す */
+    #preview-exit:not([hidden]) { display: block; margin: 1em auto; }
   </style>
   <script type="importmap">
     {
@@ -17,13 +36,17 @@
   </script>
 </head>
 <body>
-  <p id="mode">未接続</p>
-  <button id="start" disabled>開始</button>
-  <button id="stop" disabled>停止</button>
-  <p id="status"></p>
-  <button id="preview">モデルをプレビュー</button>
+  <div id="controls">
+    <p id="mode">未接続</p>
+    <button id="start" disabled>開始</button>
+    <button id="stop" disabled>停止</button>
+    <p id="status"></p>
+    <button id="preview">モデルをプレビュー</button>
+    <button id="fullscreen" hidden>全画面表示</button>
+    <p>反論の音声は AI による合成です。</p>
+  </div>
   <canvas id="avatar" hidden></canvas>
-  <p>反論の音声は AI による合成です。</p>
+  <button id="preview-exit" hidden>プレビューを終了</button>
   <script type="module" src="/scripts/recorder.js"></script>
 </body>
 </html>

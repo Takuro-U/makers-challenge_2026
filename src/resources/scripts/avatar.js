@@ -17,13 +17,47 @@ const MODEL_URL = '/models/dance.glb';
 const MAX_PIXEL_RATIO = 2;
 // カメラの縦方向の画角(度)
 const FOV_DEG = 30;
-// モデルの周りに取る余白の倍率。動きで手足が元の姿勢の範囲からはみ出す分を見込む
-const FRAME_MARGIN = 1.3;
+// モデルの周りに取る余白の倍率。動きの範囲は測ったうえで合わせるので、縁に付かない程度にとどめる
+const FRAME_MARGIN = 1.05;
+// 動きの範囲を測るときに、動きを何等分した時点で調べるか
+const BOUNDS_SAMPLES = 30;
+// 動きの範囲を測るときに調べる頂点の数の目安。全頂点では重いので、間引いて近似する
+const BOUNDS_VERTICES = 4000;
 // 質感の表現に使われる画像の種類。最初の表示で引っかからないよう、読み込み時に GPU へ送っておく
 const TEXTURE_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap'];
 
+// 動きの最初から最後までを通して、モデルが届く範囲を測る。動きがなければ元の姿勢の範囲になる
+function measureReach(model, mixer, action) {
+  const meshes = [];
+  model.traverse((object) => {
+    if (object.isMesh) meshes.push(object);
+  });
+  const duration = action?.getClip().duration ?? 0;
+  const sampleCount = duration > 0 ? BOUNDS_SAMPLES : 1;
+
+  const box = new Box3();
+  const point = new Vector3();
+  action?.play();
+  for (let sample = 0; sample < sampleCount; sample++) {
+    mixer.setTime((duration * sample) / sampleCount);
+    model.updateMatrixWorld(true);
+    for (const mesh of meshes) {
+      const count = mesh.geometry.attributes.position.count;
+      const step = Math.max(1, Math.floor(count / BOUNDS_VERTICES));
+      for (let i = 0; i < count; i += step) {
+        // 骨による変形を反映した頂点の位置
+        mesh.getVertexPosition(i, point);
+        box.expandByPoint(point.applyMatrix4(mesh.matrixWorld));
+      }
+    }
+  }
+  action?.stop();
+  return box;
+}
+
 /**
  * モデルを読み込み、canvas に描く準備をする。描画するのは show() から hide() までの間だけ。
+ * 表示領域の縦横比が変わっても(端末の向きを変えても)、全身が中央にちょうど収まるようにカメラを合わせる。
  * @param {HTMLCanvasElement} canvas
  * @returns {Promise<{ show(): void, hide(): void }>}
  */
@@ -39,7 +73,10 @@ export async function createAvatar(canvas) {
   frontLight.position.set(1, 2, 3);
   scene.add(frontLight);
 
-  const box = new Box3().setFromObject(model);
+  const mixer = new AnimationMixer(model);
+  const action = gltf.animations.length > 0 ? mixer.clipAction(gltf.animations[0]) : null;
+
+  const box = measureReach(model, mixer, action);
   const size = box.getSize(new Vector3());
   const center = box.getCenter(new Vector3());
   const camera = new PerspectiveCamera(FOV_DEG);
@@ -55,10 +92,7 @@ export async function createAvatar(canvas) {
   });
   await renderer.compileAsync(scene, camera);
 
-  const mixer = new AnimationMixer(model);
-  const action = gltf.animations.length > 0 ? mixer.clipAction(gltf.animations[0]) : null;
-
-  // 表示領域の大きさに描画を合わせ、モデル全体が正面から収まる位置にカメラを置く
+  // 表示領域の大きさに描画を合わせ、動きの範囲の全体が正面から収まる位置にカメラを置く
   const resize = () => {
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
@@ -77,9 +111,10 @@ export async function createAvatar(canvas) {
     camera.lookAt(center);
     camera.updateProjectionMatrix();
   };
-  window.addEventListener('resize', () => {
+  // 端末の向きの変更や全画面の切り替えで表示領域の大きさが変わったら、合わせ直す
+  new ResizeObserver(() => {
     if (!canvas.hidden) resize();
-  });
+  }).observe(canvas);
 
   let lastTime = null;
   const draw = (time) => {

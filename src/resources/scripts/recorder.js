@@ -9,7 +9,9 @@ const startButton = document.getElementById('start');
 const stopButton = document.getElementById('stop');
 const statusText = document.getElementById('status');
 const previewButton = document.getElementById('preview');
+const previewExitButton = document.getElementById('preview-exit');
 const avatarCanvas = document.getElementById('avatar');
+const fullscreenButton = document.getElementById('fullscreen');
 
 // サーバが /config.json で配る設定値
 // wsPath: WebSocket の接続先のパス
@@ -77,7 +79,7 @@ function describePreview() {
   if (avatarDisabled) return 'モデルは無効です(?avatar=off)';
   if (avatarFailed) return 'モデルを読み込めません';
   if (!previewing) return 'モデルをプレビュー';
-  return avatar ? 'プレビューを終了' : 'モデルを読み込んでいます';
+  return 'モデルを読み込んでいます';
 }
 
 // 3D モデルは、最初の反論に間に合うよう、ページを開いた時点で読み込む(ページを開いている間に 1 回だけ)。
@@ -94,10 +96,32 @@ async function loadAvatar() {
   render();
 }
 
-// 3D モデルは、この端末が担当で出力モードの間と、プレビューの間だけ表示する
+// 3D モデルは、この端末が担当で出力モードの間と、プレビューの間だけ表示する。
+// 表示している間は操作用の表示を隠し、モデルだけを画面いっぱいに出す(読み込めていなければ、通常の画面のまま)
 function updateAvatar() {
-  if (previewing || (state?.owner && state.mode === 'output')) avatar?.show();
+  const speaking = Boolean(state?.owner && state.mode === 'output');
+  const staged = Boolean(avatar) && (previewing || speaking);
+  if (staged && !document.body.classList.contains('stage')) window.scrollTo(0, 0);
+  document.body.classList.toggle('stage', staged);
+  // プレビューの終了ボタンはモデルの下(画面の外)に置く。読み上げ中は出さず、モデルだけにする
+  previewExitButton.hidden = !staged || speaking;
+  if (staged) avatar.show();
   else avatar?.hide();
+}
+
+// アドレスバーなどを消して、ページを画面全体に表示する。ブラウザの決まりで、ボタンの操作をきっかけにしか切り替えられない
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch (err) {
+    console.error('全画面表示を切り替えられません', err);
+  }
+}
+
+// 「戻る」の操作など、ボタン以外で全画面が終わった場合にも表示を合わせる
+function renderFullscreenButton() {
+  fullscreenButton.textContent = document.fullscreenElement ? '全画面を終了' : '全画面表示';
 }
 
 // プレビューは、モードや担当に関係なくこの端末だけで切り替える
@@ -291,4 +315,9 @@ async function init() {
 startButton.addEventListener('click', start);
 stopButton.addEventListener('click', stop);
 previewButton.addEventListener('click', togglePreview);
+previewExitButton.addEventListener('click', togglePreview);
+fullscreenButton.addEventListener('click', toggleFullscreen);
+document.addEventListener('fullscreenchange', renderFullscreenButton);
+// 全画面表示に対応しているブラウザでだけボタンを出す
+fullscreenButton.hidden = !document.fullscreenEnabled;
 init();
