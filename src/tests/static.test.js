@@ -53,6 +53,31 @@ test('トップページを返す', async () => {
   assert.equal(res.headers['Content-Type'], 'text/html; charset=utf-8');
 });
 
+test('ページのスクリプトを返す', async () => {
+  const res = await get('/scripts/avatar.js');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers['Content-Type'], 'text/javascript; charset=utf-8');
+});
+
+test('3D 表示のライブラリのうち、ブラウザが使う部分を返す', async () => {
+  for (const path of ['build/three.module.js', 'build/three.core.js', 'examples/jsm/loaders/GLTFLoader.js']) {
+    const res = await get(`/vendor/three/${path}`);
+    assert.equal(res.status, 200, path);
+    assert.equal(res.headers['Content-Type'], 'text/javascript; charset=utf-8');
+  }
+  assert.equal((await get('/vendor/three/package.json')).status, 404);
+});
+
+test('3D モデルの置き場所にないファイルは 404 にする', async () => {
+  assert.equal((await get('/models/missing.glb')).status, 404);
+});
+
+test('配信するディレクトリの外は 404 にする', async () => {
+  assert.equal((await get('/scripts/../../server.js')).status, 404);
+  assert.equal((await get('/models/%2e%2e/%2e%2e/package.json')).status, 404);
+  assert.equal((await get('/vendor/three/build/../package.json')).status, 404);
+});
+
 test('対応しないパスは 404 にする', async () => {
   const res = await get('/unknown');
   assert.equal(res.status, 404);

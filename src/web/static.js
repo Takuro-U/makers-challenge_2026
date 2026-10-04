@@ -4,10 +4,22 @@ import { SAMPLE_RATE, SPEECH_SAMPLE_RATE, WS_PATH } from '../lib/constants.js';
 import { requirePositiveInt } from '../lib/env.js';
 
 const RESOURCES_DIR = join(import.meta.dirname, '..', 'resources');
+const PROJECT_DIR = join(import.meta.dirname, '..', '..');
+const THREE_DIR = join(PROJECT_DIR, 'node_modules', 'three');
+
+// URL のパスの先頭と、配信するディレクトリの対応
+const MOUNTS = [
+  ['/scripts/', join(RESOURCES_DIR, 'scripts')],
+  ['/models/', join(PROJECT_DIR, 'assets', 'models')],
+  // 3D 表示のライブラリ。ブラウザが使う部分だけを配る
+  ['/vendor/three/build/', join(THREE_DIR, 'build')],
+  ['/vendor/three/examples/jsm/', join(THREE_DIR, 'examples', 'jsm')],
+];
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.glb': 'model/gltf-binary',
 };
 
 // ブラウザ側は環境変数もサーバの定数も読めないため、必要な値を /config.json で配る
@@ -19,19 +31,19 @@ const clientConfig = JSON.stringify({
   audioChunkMs: requirePositiveInt('CLIENT_AUDIO_CHUNK_MS'),
 });
 
-// URL のパスを resources/ 配下のファイルに対応づける。対応しなければ null
+// URL のパスを配信するファイルに対応づける。対応しなければ null
 function resolveResource(urlPath) {
   if (urlPath === '/') return join(RESOURCES_DIR, 'pages', 'index.html');
-  if (urlPath.startsWith('/scripts/')) {
-    const scriptsDir = join(RESOURCES_DIR, 'scripts');
-    const file = normalize(join(scriptsDir, urlPath.slice('/scripts/'.length)));
+  for (const [prefix, dir] of MOUNTS) {
+    if (!urlPath.startsWith(prefix)) continue;
+    const file = normalize(join(dir, urlPath.slice(prefix.length)));
     // ディレクトリトラバーサルを防ぐ
-    if (file.startsWith(scriptsDir + sep)) return file;
+    return file.startsWith(dir + sep) ? file : null;
   }
   return null;
 }
 
-/** resources/ 配下のページとスクリプト、ブラウザ側の設定値を配信する HTTP ハンドラ */
+/** ページとスクリプト、3D モデル、ブラウザ側の設定値を配信する HTTP ハンドラ */
 export async function serveStatic(req, res) {
   const { pathname } = new URL(req.url, 'http://localhost');
   if (req.method === 'GET' && pathname === '/config.json') {

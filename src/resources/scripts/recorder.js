@@ -1,5 +1,5 @@
 // サーバが持つモードを WebSocket で受け取って表示し続ける。
-// この端末が担当のときは、サーバから届いた反論の音声を再生する。
+// この端末が担当のときは、サーバから届いた反論の音声を再生し、その間だけ 3D モデルを表示する。
 // この端末がマイクの担当になったら、マイク入力をモノラルの 16bit PCM(サンプリングレートはサーバの指定)に変換してサーバへ送る
 
 const MODE_LABELS = { standby: '待機モード', input: '入力モード', output: '出力モード' };
@@ -8,6 +8,8 @@ const modeText = document.getElementById('mode');
 const startButton = document.getElementById('start');
 const stopButton = document.getElementById('stop');
 const statusText = document.getElementById('status');
+const previewButton = document.getElementById('preview');
+const avatarCanvas = document.getElementById('avatar');
 
 // サーバが /config.json で配る設定値
 // wsPath: WebSocket の接続先のパス
@@ -28,6 +30,14 @@ let mediaStream = null;
 let playback = null;
 // 再生に失敗して終了を報告済みの間は true
 let playbackFailed = false;
+// 出力モードの間に表示する 3D モデル。読み込みが済むまで、または読み込めなかった場合は null
+let avatar = null;
+// 3D モデルの読み込みを始めたら true(ページを開いている間に 1 回だけ読み込む)
+let avatarRequested = false;
+// 3D モデルを読み込めなかったら true
+let avatarFailed = false;
+// プレビューのボタンで 3D モデルを表示している間は true
+let previewing = false;
 
 // 最初の音声を鳴らし始めるまでの余裕(秒)。続きが届く前に途切れるのを防ぐ
 const PLAYBACK_LEAD_SEC = 0.15;
@@ -45,6 +55,42 @@ function render() {
   statusText.textContent = describeStatus();
   startButton.disabled = starting || state?.mode !== 'standby';
   stopButton.disabled = !state?.owner;
+  previewButton.disabled = avatarFailed;
+  previewButton.textContent = describePreview();
+  updateAvatar();
+}
+
+function describePreview() {
+  if (avatarFailed) return 'モデルを読み込めません';
+  if (!previewing) return 'モデルをプレビュー';
+  return avatar ? 'プレビューを終了' : 'モデルを読み込んでいます';
+}
+
+// 3D モデルは、担当になった端末とプレビューする端末だけが読み込む。読み込めなくても、表示なしのまま他の機能は動かす
+async function loadAvatar() {
+  avatarRequested = true;
+  try {
+    const { createAvatar } = await import('/scripts/avatar.js');
+    avatar = await createAvatar(avatarCanvas);
+  } catch (err) {
+    console.error('3D モデルを読み込めません', err);
+    avatarFailed = true;
+    previewing = false;
+  }
+  render();
+}
+
+// 3D モデルは、この端末が担当で出力モードの間と、プレビューの間だけ表示する
+function updateAvatar() {
+  if ((state?.owner || previewing) && !avatarRequested) loadAvatar();
+  if (previewing || (state?.owner && state.mode === 'output')) avatar?.show();
+  else avatar?.hide();
+}
+
+// プレビューは、モードや担当に関係なくこの端末だけで切り替える
+function togglePreview() {
+  previewing = !previewing;
+  render();
 }
 
 function connect() {
@@ -224,4 +270,5 @@ async function init() {
 
 startButton.addEventListener('click', start);
 stopButton.addEventListener('click', stop);
+previewButton.addEventListener('click', togglePreview);
 init();

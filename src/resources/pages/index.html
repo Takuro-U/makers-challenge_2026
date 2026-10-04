@@ -4,12 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>地元擁護反論デバイス</title>
+  <style>
+    #avatar { width: 100%; max-width: 480px; aspect-ratio: 3 / 4; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <p id="mode">未接続</p>
   <button id="start" disabled>開始</button>
   <button id="stop" disabled>停止</button>
   <p id="status"></p>
+  <button id="preview">モデルをプレビュー</button>
+  <canvas id="avatar" hidden></canvas>
   <p>反論の音声は AI による合成です。</p>
   <script type="module" src="/scripts/recorder.js"></script>
 </body>
